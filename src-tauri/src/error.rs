@@ -5,6 +5,7 @@
 //! 새 도메인 에러가 생기면 여기에 variant를 추가한다.
 
 use core_config::ConfigError;
+use core_fs::FsError;
 use core_ssh::SshError;
 use serde::Serialize;
 
@@ -17,6 +18,9 @@ pub enum AppError {
     /// 사용자 입력이 잘못됨
     #[error("{0}")]
     InvalidInput(String),
+    /// 파일이나 폴더에 접근할 권한이 없음
+    #[error("{0}")]
+    PermissionDenied(String),
     /// 파일 등 입출력 실패
     #[error("{0}")]
     Io(String),
@@ -52,6 +56,21 @@ impl From<ConfigError> for AppError {
             ConfigError::Invalid(_) => Self::InvalidInput(message),
             ConfigError::Io(_) => Self::Io(message),
             ConfigError::Json(_) => Self::Internal(message),
+        }
+    }
+}
+
+impl From<FsError> for AppError {
+    fn from(e: FsError) -> Self {
+        let message = e.to_string();
+        match e {
+            FsError::NotFound(_) => Self::NotFound(message),
+            FsError::PermissionDenied(_) => Self::PermissionDenied(message),
+            FsError::NotADirectory(_) => Self::InvalidInput(message),
+            FsError::Disconnected => Self::Connection(message),
+            // 접속 단계의 에러는 종류를 그대로 살려 UI가 비밀번호 입력 등으로 이어 갈 수 있게 한다.
+            FsError::Ssh(ssh) => ssh.into(),
+            FsError::Io(_) => Self::Io(message),
         }
     }
 }

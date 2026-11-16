@@ -9,7 +9,7 @@ Rust + [Tauri 2](https://v2.tauri.app) + React로 만듭니다.
 | ---- | ----------------------------------------------- | ---- |
 | M1   | Tauri 뼈대, 3단 레이아웃, 호스트 추가/삭제/저장 | ✅   |
 | M2   | SSH 접속 + xterm.js 터미널 (다중 세션)          | 🚧   |
-| M3   | SFTP 파일 트리                                  | ⏳   |
+| M3   | SFTP 파일 트리                                  | 🚧   |
 | M4   | Monaco 코드 에디터 (원격 파일 열기/저장)        | ⏳   |
 | M5   | Git Diff (로컬 · 원격)                          | ⏳   |
 | M6   | GitHub Actions 3개 OS 크로스 빌드               | ⏳   |
@@ -21,12 +21,13 @@ anvil/
 ├── Cargo.toml          # Cargo 워크스페이스
 ├── crates/
 │   ├── core-config/    # 호스트 목록 저장 (Tauri 비의존)
-│   └── core-ssh/       # SSH 접속 · 인증 · 원격 셸 (russh, Tauri 비의존)
+│   ├── core-ssh/       # SSH 접속 · 인증 · 원격 셸 (russh, Tauri 비의존)
+│   └── core-fs/        # 로컬 · SFTP 파일 시스템 공통 트레잇
 ├── src-tauri/          # Tauri 앱 (커맨드 연결)
 └── ui/                 # React + TypeScript 프론트엔드
 ```
 
-이후 `core-fs`, `core-git` 크레이트가 추가됩니다.
+이후 `core-git` 크레이트가 추가됩니다.
 
 ## 개발 환경 준비
 

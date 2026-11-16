@@ -1,42 +1,23 @@
 //! 터미널 세션 커맨드. SSH 로직은 `core-ssh`에 있고 여기서는 IPC로 잇기만 한다.
 
 use crate::error::{AppError, AppResult};
+use crate::ssh::Credentials;
 use crate::AppState;
-use core_config::{AuthMethod, Host};
-use core_ssh::{Auth, ConnectParams, HostKeyPolicy, Shell, ShellEvent, SshPool};
+use core_ssh::{Shell, ShellEvent};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::{Channel, InvokeResponseBody, IpcResponse};
 use tauri::State;
 
-/// 열려 있는 터미널 세션과 SSH 연결 풀
+/// 열려 있는 터미널 세션
+#[derive(Default)]
 pub struct Terminals {
-    pool: SshPool,
     shells: Arc<Mutex<HashMap<String, Shell>>>,
-    /// Anvil이 새로 신뢰한 호스트 키를 기록하는 파일
-    known_hosts: PathBuf,
-    /// 읽기만 하는 known_hosts (`~/.ssh/known_hosts`)
-    extra_known_hosts: Vec<PathBuf>,
 }
 
 impl Terminals {
-    pub fn new(known_hosts: PathBuf, extra_known_hosts: Vec<PathBuf>) -> Self {
-        Self {
-            pool: SshPool::new(),
-            shells: Arc::default(),
-            known_hosts,
-            extra_known_hosts,
-        }
-    }
-
-    /// 호스트가 삭제되면 연결 풀에서도 잊는다.
-    pub fn forget_host(&self, host_id: &str) {
-        self.pool.forget(host_id);
-    }
-
     fn with_shell<T>(
         &self,
         session_id: &str,
@@ -76,24 +57,6 @@ impl specta::Type for TerminalOutput {
     }
 }
 
-fn connect_params(host: &Host, secret: Option<String>) -> ConnectParams {
-    // 빈 문자열은 입력하지 않은 것으로 본다.
-    let secret = secret.filter(|s| !s.is_empty());
-    ConnectParams {
-        address: host.address.clone(),
-        port: host.port,
-        username: host.username.clone(),
-        auth: match &host.auth {
-            AuthMethod::Password => Auth::Password(secret),
-            AuthMethod::Key { path } => Auth::Key {
-                path: path.clone(),
-                passphrase: secret,
-            },
-            AuthMethod::Agent => Auth::Agent,
-        },
-    }
-}
-
 /// 호스트에 접속해(이미 연결되어 있으면 재사용) 새 셸을 연다. 세션 id를 돌려준다.
 ///
 /// - `secret`: 인증 방식에 따라 비밀번호 또는 개인키 패스프레이즈. 저장하지 않는다.
@@ -116,16 +79,11 @@ pub async fn terminal_open(
     // 잠금을 await 너머로 들고 가지 않도록 필요한 값만 복사해 둔다.
     let host = state.hosts.lock()?.get(&host_id)?.clone();
     let terminals = &state.terminals;
-    let policy = HostKeyPolicy {
-        known_hosts: terminals.known_hosts.clone(),
-        extra_known_hosts: terminals.extra_known_hosts.clone(),
-        trusted_fingerprint: trusted_host_key,
+    let credentials = Credentials {
+        secret,
+        trusted_host_key,
     };
-
-    let connection = terminals
-        .pool
-        .get_or_connect(&host_id, &connect_params(&host, secret), &policy)
-        .await?;
+    let connection = state.ssh.connect(&host, credentials).await?;
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let exited = Arc::new(AtomicBool::new(false));

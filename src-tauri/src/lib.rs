@@ -1,8 +1,12 @@
 mod error;
+mod fs;
+mod ssh;
 mod terminal;
 
 use core_config::{Host, HostStore, NewHost};
 use error::AppResult;
+use fs::Files;
+use ssh::SshContext;
 use std::sync::Mutex;
 use tauri::{Manager, State};
 use tauri_specta::{collect_commands, Builder};
@@ -16,7 +20,9 @@ const BINDINGS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../ui/src/bind
 /// 앱 전역 상태
 struct AppState {
     hosts: Mutex<HostStore>,
+    ssh: SshContext,
     terminals: Terminals,
+    files: Files,
 }
 
 #[tauri::command]
@@ -33,9 +39,10 @@ fn add_host(state: State<'_, AppState>, input: NewHost) -> AppResult<Host> {
 
 #[tauri::command]
 #[specta::specta]
-fn remove_host(state: State<'_, AppState>, id: String) -> AppResult<()> {
+async fn remove_host(state: State<'_, AppState>, id: String) -> AppResult<()> {
     state.hosts.lock()?.remove(&id)?;
-    state.terminals.forget_host(&id);
+    state.ssh.forget_host(&id);
+    state.files.close(&id).await;
     Ok(())
 }
 
@@ -51,6 +58,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             terminal::terminal_write,
             terminal::terminal_resize,
             terminal::terminal_close,
+            fs::fs_list,
+            fs::fs_close,
         ])
         .typ::<AppError>()
 }
@@ -91,14 +100,16 @@ pub fn run() {
                 .home_dir()
                 .map(|home| home.join(".ssh").join("known_hosts"))
                 .ok();
-            let terminals = Terminals::new(
+            let ssh = SshContext::new(
                 config_dir.join("known_hosts"),
                 user_known_hosts.into_iter().collect(),
             );
 
             app.manage(AppState {
                 hosts: Mutex::new(store),
-                terminals,
+                ssh,
+                terminals: Terminals::default(),
+                files: Files::default(),
             });
             Ok(())
         })

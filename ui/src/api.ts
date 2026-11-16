@@ -1,6 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { commands } from "./bindings";
-import type { AppError, Host, NewHost } from "./types";
+import { LOCAL_ID, type AppError, type DirListing, type Host, type NewHost } from "./types";
 
 // 브라우저(vite dev)에서 단독으로 UI를 볼 때는 Tauri가 없으므로 메모리 목업을 쓴다.
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -111,4 +111,59 @@ export async function closeTerminal(sessionId: string): Promise<void> {
     return;
   }
   await commands.terminalClose(sessionId);
+}
+
+// ── 파일 ──
+
+export interface ListDirOptions {
+  /** `LOCAL_ID`면 이 머신, 아니면 해당 호스트를 SFTP로 읽는다. */
+  hostId: string;
+  /** 생략하면 홈 디렉터리 */
+  path?: string;
+  /** 원격 접속이 필요할 때만 (터미널과 같은 방식) */
+  secret?: string;
+  trustedHostKey?: string;
+}
+
+/** 브라우저 미리보기용 가짜 폴더 구조 */
+function mockListing(path: string): DirListing {
+  const depth = path.split("/").filter(Boolean).length;
+  const entry = (name: string, kind: "dir" | "file", size = 0) => ({
+    name,
+    path: `${path === "/" ? "" : path}/${name}`,
+    kind,
+    isSymlink: false,
+    size,
+    modified: 1_700_000_000,
+  });
+  return {
+    path,
+    parent: path === "/" ? null : path.slice(0, path.lastIndexOf("/")) || "/",
+    entries:
+      depth > 3
+        ? []
+        : [
+            entry("src", "dir"),
+            entry(".config", "dir"),
+            entry("README.md", "file", 2048),
+            entry("main.rs", "file", 512),
+          ],
+  };
+}
+
+/** 폴더 내용을 읽는다. 실패하면 AppError를 던진다. */
+export async function listDir(options: ListDirOptions): Promise<DirListing> {
+  if (!inTauri) return mockListing(options.path ?? "/home/preview");
+  return commands.fsList(
+    options.hostId,
+    options.path ?? null,
+    options.secret ?? null,
+    options.trustedHostKey ?? null,
+  );
+}
+
+/** 파일 탐색기를 닫을 때 원격 SFTP 세션을 정리한다. */
+export async function closeFiles(hostId: string): Promise<void> {
+  if (!inTauri || hostId === LOCAL_ID) return;
+  await commands.fsClose(hostId);
 }

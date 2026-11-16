@@ -25,6 +25,16 @@ export const commands = {
 	terminalResize: (sessionId: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("terminal_resize", { sessionId, cols, rows }, options),
 	/**  셸을 닫는다. 이미 끝난 세션이면 아무 일도 하지 않는다. */
 	terminalClose: (sessionId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("terminal_close", { sessionId }, options),
+	/**
+	 *  폴더 내용을 읽는다. `path`가 없으면 홈 디렉터리를 읽는다.
+	 * 
+	 *  `host_id`가 `"local"`이면 이 머신의 디스크를, 아니면 해당 호스트를 SFTP로 읽는다.
+	 *  원격은 접속이 필요할 수 있어 `terminal_open`과 같은 방식으로
+	 *  `secret` / `trusted_host_key`를 받고 같은 에러(`passwordRequired` 등)를 돌려준다.
+	 */
+	fsList: (hostId: string, path: string | null, secret: string | null, trustedHostKey: string | null, options?: InvokeOptions) => __TAURI_INVOKE<DirListing_Serialize>("fs_list", { hostId, path, secret, trustedHostKey }, options),
+	/**  파일 탐색기 탭을 닫을 때 호출한다. 호스트의 SFTP 세션을 정리한다. */
+	fsClose: (hostId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("fs_close", { hostId }, options),
 };
 
 /* Types */
@@ -33,6 +43,8 @@ export type AppError =
 { kind: "notFound"; message: string } | 
 /**  사용자 입력이 잘못됨 */
 { kind: "invalidInput"; message: string } | 
+/**  파일이나 폴더에 접근할 권한이 없음 */
+{ kind: "permissionDenied"; message: string } | 
 /**  파일 등 입출력 실패 */
 { kind: "io"; message: string } | 
 /**  서버에 연결할 수 없거나 연결이 끊김 */
@@ -61,6 +73,64 @@ export type AuthMethod =
 { kind: "key"; path: string } | 
 /**  ssh-agent 사용 */
 { kind: "agent" };
+
+/**  폴더 안의 항목 하나 */
+export type DirEntry = DirEntry_Serialize | DirEntry_Deserialize;
+
+/**  폴더 안의 항목 하나 */
+export type DirEntry_Deserialize = {
+	name: string,
+	/**  이 항목의 전체 경로. 하위 폴더를 열 때 그대로 `list_dir`에 넘긴다. */
+	path: string,
+	/**  심볼릭 링크라면 링크가 가리키는 대상의 종류 */
+	kind: EntryKind,
+	isSymlink: boolean,
+	/**  바이트 단위 크기 (폴더는 의미 없음) */
+	size: number,
+	/**  마지막 수정 시각 (유닉스 초) */
+	modified?: number | null,
+};
+
+/**  폴더 안의 항목 하나 */
+export type DirEntry_Serialize = {
+	name: string,
+	/**  이 항목의 전체 경로. 하위 폴더를 열 때 그대로 `list_dir`에 넘긴다. */
+	path: string,
+	/**  심볼릭 링크라면 링크가 가리키는 대상의 종류 */
+	kind: EntryKind,
+	isSymlink: boolean,
+	/**  바이트 단위 크기 (폴더는 의미 없음) */
+	size: number,
+	/**  마지막 수정 시각 (유닉스 초) */
+	modified: number | null,
+};
+
+/**  폴더 하나를 읽은 결과 */
+export type DirListing = DirListing_Serialize | DirListing_Deserialize;
+
+/**  폴더 하나를 읽은 결과 */
+export type DirListing_Deserialize = {
+	/**  정규화된 절대 경로 */
+	path: string,
+	/**  상위 폴더. 최상위(루트)면 `None`. */
+	parent?: string | null,
+	/**  폴더 먼저, 그다음 이름순(대소문자 무시)으로 정렬되어 있다. */
+	entries: DirEntry_Deserialize[],
+};
+
+/**  폴더 하나를 읽은 결과 */
+export type DirListing_Serialize = {
+	/**  정규화된 절대 경로 */
+	path: string,
+	/**  상위 폴더. 최상위(루트)면 `None`. */
+	parent: string | null,
+	/**  폴더 먼저, 그다음 이름순(대소문자 무시)으로 정렬되어 있다. */
+	entries: DirEntry_Serialize[],
+};
+
+export type EntryKind = "file" | "dir" | 
+/**  소켓, 장치 파일, 대상이 없는 심볼릭 링크 등 */
+"other";
 
 /**  저장된 원격 호스트 */
 export type Host = {

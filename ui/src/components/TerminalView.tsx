@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../api";
 import type { Host } from "../types";
+import { ConnectPrompt, promptForError, type Credentials, type Prompt } from "./ConnectPrompt";
 
 interface Props {
   host: Host;
@@ -11,52 +12,20 @@ interface Props {
   active: boolean;
 }
 
-/** 한 번의 접속 시도에 쓰는 값. 새 객체로 바꾸면 다시 접속한다. */
-interface Attempt {
-  secret?: string;
-  trustedHostKey?: string;
-}
-
 type Phase =
   | { kind: "connecting" }
   | { kind: "connected" }
-  /** 비밀번호나 패스프레이즈를 입력받는 중 */
-  | { kind: "secret"; label: string; error?: string }
-  /** 처음 보는 호스트 키를 확인받는 중 */
-  | { kind: "hostKey"; fingerprint: string }
+  /** 비밀번호·패스프레이즈 입력이나 호스트 키 확인을 기다리는 중 */
+  | { kind: "prompt"; prompt: Prompt }
   /** 셸이 끝났거나 접속에 실패함 */
   | { kind: "ended"; message: string; failed: boolean };
-
-/** 접속 실패를 다음에 보여 줄 화면으로 바꾼다. */
-function phaseForError(e: unknown, host: Host, attempt: Attempt): Phase {
-  if (api.isAppError(e)) {
-    switch (e.kind) {
-      case "hostKeyUnknown":
-        return { kind: "hostKey", fingerprint: e.message };
-      case "passwordRequired":
-        return { kind: "secret", label: "비밀번호" };
-      case "passphraseRequired":
-        // 이미 입력했는데 또 요구한다면 틀린 것이므로 이유를 보여 준다.
-        return {
-          kind: "secret",
-          label: "개인키 패스프레이즈",
-          error: attempt.secret === undefined ? undefined : e.message,
-        };
-      case "authFailed":
-        if (host.auth.kind === "password") {
-          return { kind: "secret", label: "비밀번호", error: e.message };
-        }
-    }
-  }
-  return { kind: "ended", message: api.errorMessage(e), failed: true };
-}
 
 /** SSH 터미널 탭 하나. xterm 인스턴스와 원격 셸 세션을 소유한다. */
 export function TerminalView({ host, active }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const sessionRef = useRef<string | null>(null);
-  const [attempt, setAttempt] = useState<Attempt>({});
+  const [attempt, setAttempt] = useState<Credentials>({});
   const [phase, setPhase] = useState<Phase>({ kind: "connecting" });
 
   // xterm 인스턴스: 탭이 생길 때 만들고 닫힐 때 정리한다.
@@ -133,7 +102,11 @@ export function TerminalView({ host, active }: Props) {
         term.focus();
       })
       .catch((e) => {
-        if (!cancelled) setPhase(phaseForError(e, host, attempt));
+        if (cancelled) return;
+        const prompt = promptForError(e, host, attempt);
+        setPhase(
+          prompt ? { kind: "prompt", prompt } : { kind: "ended", message: api.errorMessage(e), failed: true },
+        );
       });
 
     return () => {
@@ -152,7 +125,7 @@ export function TerminalView({ host, active }: Props) {
     if (active && phase.kind === "connected") termRef.current?.focus();
   }, [active, phase.kind]);
 
-  const retry = (next: Attempt) => {
+  const retry = (next: Credentials) => {
     if (phase.kind === "ended") termRef.current?.write("\r\n");
     setAttempt(next);
   };
@@ -162,50 +135,23 @@ export function TerminalView({ host, active }: Props) {
     <div className="terminal">
       <div className="terminal-screen" ref={containerRef} />
       {phase.kind === "connecting" && (
-        <div className="terminal-overlay">
-          <div className="terminal-card">
+        <div className="overlay">
+          <div className="overlay-card">
             {host.username}@{host.address}:{host.port}에 접속하는 중…
           </div>
         </div>
       )}
-      {phase.kind === "secret" && (
-        <SecretPrompt
-          label={phase.label}
-          error={phase.error}
-          target={`${host.username}@${host.address}`}
-          onSubmit={(secret) => retry({ ...attempt, secret })}
+      {phase.kind === "prompt" && (
+        <ConnectPrompt
+          host={host}
+          prompt={phase.prompt}
+          onSubmit={(credentials) => retry({ ...attempt, ...credentials })}
           onCancel={cancel}
         />
       )}
-      {phase.kind === "hostKey" && (
-        <div className="terminal-overlay">
-          <div className="terminal-card">
-            <h3>처음 접속하는 호스트입니다</h3>
-            <p>
-              <b>
-                {host.address}:{host.port}
-              </b>
-              의 호스트 키를 아직 신뢰한 적이 없습니다. 아래 지문이 서버의 것과 같은지 확인하세요.
-            </p>
-            <code className="fingerprint">{phase.fingerprint}</code>
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={cancel}>
-                취소
-              </button>
-              <button
-                className="btn-primary"
-                autoFocus
-                onClick={() => retry({ ...attempt, trustedHostKey: phase.fingerprint })}
-              >
-                신뢰하고 접속
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {phase.kind === "ended" && (
-        <div className="terminal-overlay bottom">
-          <div className="terminal-card compact">
+        <div className="overlay bottom">
+          <div className="overlay-card compact">
             <span className={phase.failed ? "form-error" : undefined}>{phase.message}</span>
             {/* 틀린 비밀 값을 다시 쓰지 않도록 처음부터 다시 시도한다. */}
             <button className="btn-primary" onClick={() => retry({})}>
@@ -214,42 +160,6 @@ export function TerminalView({ host, active }: Props) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-interface SecretPromptProps {
-  label: string;
-  error?: string;
-  target: string;
-  onSubmit: (secret: string) => void;
-  onCancel: () => void;
-}
-
-/** 비밀번호 / 패스프레이즈 입력. 값은 접속 요청에만 쓰이고 저장되지 않는다. */
-function SecretPrompt({ label, error, target, onSubmit, onCancel }: SecretPromptProps) {
-  const [value, setValue] = useState("");
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (value) onSubmit(value);
-  };
-  return (
-    <div className="terminal-overlay">
-      <form className="terminal-card modal-like" onSubmit={submit}>
-        <label>
-          {target}의 {label}
-          <input type="password" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
-        </label>
-        {error && <p className="form-error">{error}</p>}
-        <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onCancel}>
-            취소
-          </button>
-          <button type="submit" className="btn-primary" disabled={!value}>
-            접속
-          </button>
-        </div>
-      </form>
     </div>
   );
 }

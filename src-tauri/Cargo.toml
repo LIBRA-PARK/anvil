@@ -37,3 +37,5 @@ tauri-specta.workspace = true
 core-config = { path = "../crates/core-config" }
 core-ssh = { path = "../crates/core-ssh" }
 uuid.workspace = true
+core-fs = { path = "../crates/core-fs" }
+tokio = { version = "1", features = ["sync"] }

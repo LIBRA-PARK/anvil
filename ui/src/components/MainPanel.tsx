@@ -1,4 +1,5 @@
 import { LOCAL_ID, type Host, type Tab } from "../types";
+import { FilesView } from "./FilesView";
 import { TerminalView } from "./TerminalView";
 
 interface Props {
@@ -13,7 +14,7 @@ interface Props {
 const PLACEHOLDER: Record<Tab["kind"], string> = {
   welcome: "",
   terminal: "로컬 터미널은 아직 지원하지 않습니다. 원격 호스트를 추가하면 SSH 터미널을 열 수 있습니다.",
-  files: "M3: SFTP 파일 트리가 들어갈 자리입니다.",
+  files: "",
   editor: "M4: Monaco 코드 에디터가 들어갈 자리입니다.",
   diff: "M5: Monaco Diff 뷰어가 들어갈 자리입니다.",
 };
@@ -43,6 +44,11 @@ export function MainPanel({ tabs, activeTabId, hosts, onActivate, onClose }: Pro
     if (tab.kind === "terminal" && tab.hostId !== LOCAL_ID) {
       const host = hosts.find((h) => h.id === tab.hostId);
       if (host) return <TerminalView host={host} active={active} />;
+    }
+    if (tab.kind === "files") {
+      if (tab.hostId === LOCAL_ID) return <FilesView host={null} />;
+      const host = hosts.find((h) => h.id === tab.hostId);
+      if (host) return <FilesView host={host} />;
     }
     return <div className="placeholder">{PLACEHOLDER[tab.kind]}</div>;
   };

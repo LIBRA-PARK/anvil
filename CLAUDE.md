@@ -13,13 +13,13 @@ UI는 Discord식 3단 레이아웃이다. 협업/채팅 기능은 없고 **레�
 - 메인 패널(`MainPanel`): 탭으로 터미널·에디터·Diff 전환. 탭 id는 `${hostId}:${kind}`이며 같은 id면 새로 열지 않고 포커스한다. 터미널만 예외로 한 호스트에 여러 개 열 수 있어 `${hostId}:terminal:${번호}`를 쓴다.
 - 탭은 모두 마운트해 두고 `hidden`으로 숨기기만 한다(터미널 세션과 화면 내용 유지). 탭을 닫으면 언마운트되면서 세션도 닫힌다.
 
-## 로드맵 (현재 M2 진행 중)
+## 로드맵 (현재 M2·M3 진행 중)
 
 | 단계  | 내용                                                 | 계획된 구현                                                           |
 | ----- | ---------------------------------------------------- | --------------------------------------------------------------------- |
 | M1 ✅ | 뼈대, 레이아웃, 호스트 추가/삭제/저장                | `crates/core-config`                                                  |
 | M2 🚧 | SSH 접속 + 다중 세션 터미널                          | `russh` + 프론트 `xterm.js`, `crates/core-ssh`                        |
-| M3    | SFTP 파일 트리                                       | `russh-sftp`                                                          |
+| M3 🚧 | SFTP 파일 트리                                       | `russh-sftp`, `crates/core-fs`                                        |
 | M4    | 코드 에디터 (원격 파일 열기 / 저장 시 SFTP 업로드)   | Monaco Editor                                                         |
 | M5    | Git Diff (로컬 + 원격)                               | 로컬 `git2`, 원격은 SSH로 `git diff` 실행 후 파싱, 뷰어는 Monaco Diff |
 | M6    | 릴리스 워크플로(설치 파일), 코드 서명, 자동 업데이트 |                                                                       |
@@ -73,6 +73,16 @@ Tauri 크레이트를 컴파일하기 전에 `dist/`가 있어야 한다. 새로
 - `core-ssh` 통합 테스트(`tests/shell.rs`)는 프로세스 안에 russh 서버를 띄워 돌리므로 외부 sshd가 필요 없다. `tests/fixtures/`의 키는 테스트 전용이다.
 - russh는 Windows CI에서 NASM/CMake가 필요 없도록 `aws-lc-rs` 대신 `ring` 백엔드를 쓴다.
 - M2 남은 일: 비밀번호 키체인 저장(`keyring`), 로컬 터미널(💻), keyboard-interactive 인증, 출력 폭주 시 묶어 보내기.
+
+### 파일 탐색 (`crates/core-fs` + `src-tauri/src/fs.rs`)
+
+- `FileSystem` 트레잇을 `LocalFs`(로컬 디스크)와 `SftpFs`(원격)가 구현한다. 커맨드 `fs_list`는 `host_id`가 `"local"`이면 로컬, 아니면 SFTP를 고르고 나머지 처리는 같다. M4의 파일 읽기/쓰기도 이 트레잇에 메서드를 추가한다.
+- 경로는 문자열로 주고받고(로컬은 OS 형식, 원격은 POSIX), UI는 경로를 직접 조립하지 않는다. 백엔드가 `DirListing.parent`와 각 항목의 `path`를 내려 준다.
+- SFTP 세션은 호스트당 하나를 `Files`에 캐시하고, 파일 탭을 닫으면(`fs_close`) 정리한다. SSH 연결은 터미널과 같은 `SshContext`(`src-tauri/src/ssh.rs`)의 풀을 공유한다.
+- 원격 접속이 필요한 커맨드는 `secret` / `trusted_host_key`를 받고 터미널과 같은 에러 종류를 돌려준다. UI 쪽 입력 창은 `ConnectPrompt.tsx`(`promptForError` + `ConnectPrompt`)를 재사용한다.
+- `u64` 필드는 specta가 BigInt로 내보내려다 실패하므로 `#[specta(type = specta_typescript::Number)]`를 붙인다.
+- `SftpFs`는 자동 테스트가 없다(SSH+SFTP 서버를 프로세스 안에 띄우는 하네스가 아직 없음). 바꿀 때는 실제 sshd로 확인한다.
+- M3 남은 일: 파일 조작(새 폴더·이름 변경·삭제), 업로드/다운로드, 숨김 파일 토글.
 
 ### 에러 처리
 
