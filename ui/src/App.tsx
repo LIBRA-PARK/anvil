@@ -136,6 +136,17 @@ export default function App() {
     setActiveTabId(id);
   };
 
+  /** 탭을 드래그해 다른 탭의 자리로 옮긴다. */
+  const moveTab = (id: string, targetId: string) => {
+    const from = tabs.findIndex((t) => t.id === id);
+    const to = tabs.findIndex((t) => t.id === targetId);
+    if (from < 0 || to < 0 || from === to) return;
+    const next = [...tabs];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setTabs(next);
+  };
+
   const closeTab = (id: string) => {
     const index = tabs.findIndex((t) => t.id === id);
     if (index < 0) return;
@@ -169,6 +180,7 @@ export default function App() {
         hosts={hosts}
         onActivate={setActiveTabId}
         onClose={closeTab}
+        onMove={moveTab}
         onOpenFile={openFile}
         onOpenDiff={openDiff}
         dirtyTabs={dirtyTabs}
