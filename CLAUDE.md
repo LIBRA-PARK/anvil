@@ -10,14 +10,15 @@ UI는 Discord식 3단 레이아웃이다. 협업/채팅 기능은 없고 **레�
 
 - 왼쪽 아이콘 바(`HostBar`): Discord "서버" 자리에 SSH 호스트. 💻는 로컬 머신(`LOCAL_ID = "local"`).
 - 채널 사이드바(`ChannelSidebar`): 선택한 호스트의 기능 채널(터미널 / 파일 / Git).
-- 메인 패널(`MainPanel`): 탭으로 터미널·에디터·Diff 전환. 탭 id는 `${hostId}:${kind}`이며 같은 id면 새로 열지 않고 포커스한다.
+- 메인 패널(`MainPanel`): 탭으로 터미널·에디터·Diff 전환. 탭 id는 `${hostId}:${kind}`이며 같은 id면 새로 열지 않고 포커스한다. 터미널만 예외로 한 호스트에 여러 개 열 수 있어 `${hostId}:terminal:${번호}`를 쓴다.
+- 탭은 모두 마운트해 두고 `hidden`으로 숨기기만 한다(터미널 세션과 화면 내용 유지). 탭을 닫으면 언마운트되면서 세션도 닫힌다.
 
-## 로드맵 (현재 M1 완료, 다음은 M2)
+## 로드맵 (현재 M2 진행 중)
 
 | 단계  | 내용                                                 | 계획된 구현                                                           |
 | ----- | ---------------------------------------------------- | --------------------------------------------------------------------- |
 | M1 ✅ | 뼈대, 레이아웃, 호스트 추가/삭제/저장                | `crates/core-config`                                                  |
-| M2    | SSH 접속 + 다중 세션 터미널                          | `russh` + 프론트 `xterm.js`, 새 크레이트 `core-ssh`                   |
+| M2 🚧 | SSH 접속 + 다중 세션 터미널                          | `russh` + 프론트 `xterm.js`, `crates/core-ssh`                        |
 | M3    | SFTP 파일 트리                                       | `russh-sftp`                                                          |
 | M4    | 코드 에디터 (원격 파일 열기 / 저장 시 SFTP 업로드)   | Monaco Editor                                                         |
 | M5    | Git Diff (로컬 + 원격)                               | 로컬 `git2`, 원격은 SSH로 `git diff` 실행 후 파싱, 뷰어는 Monaco Diff |
@@ -62,6 +63,16 @@ Tauri 크레이트를 컴파일하기 전에 `dist/`가 있어야 한다. 새로
 - specta 계열(`specta`, `specta-typescript`, `tauri-specta`)은 RC 버전이라 루트 `Cargo.toml`의 `[workspace.dependencies]`에 `=` 정확 버전으로 고정되어 있다. 버전을 올릴 때는 세 개를 함께 맞춘다.
 - 프론트엔드는 `commands.*`를 직접 부르지 않고 `ui/src/api.ts` 래퍼를 거친다. 브라우저 미리보기용 목업 분기(`__TAURI_INTERNALS__` 존재 여부 확인)가 여기에 있다.
 - `ui/src/types.ts`는 bindings의 타입을 다시 export하고 UI 전용 타입(`Tab`, `TabKind`, `LOCAL_ID`)만 정의한다.
+
+### SSH 터미널 (`crates/core-ssh` + `src-tauri/src/terminal.rs`)
+
+- `SshPool`이 호스트 id별로 연결 하나를 공유한다(약한 참조). 탭을 여러 개 열어도 인증은 한 번이고, 셸이 모두 닫히면 연결도 끊긴다. M3의 SFTP도 이 연결에 채널을 추가하는 식으로 붙인다.
+- 셸 출력은 `Channel<TerminalOutput>`(raw 바이트 → JS `ArrayBuffer`)으로 보낸다. JSON으로 보내지 않는다.
+- 호스트 키: 새로 신뢰한 키는 앱 설정 폴더의 `known_hosts`에만 기록하고 `~/.ssh/known_hosts`는 읽기만 한다. 처음 보는 키는 `hostKeyUnknown` 에러(`message` = 지문)로 돌려보내고, UI가 사용자 확인 후 같은 지문을 `trustedHostKey`로 넣어 다시 호출한다. 키 불일치(`hostKeyMismatch`)는 우회 수단을 두지 않는다.
+- 비밀번호·패스프레이즈는 `terminal_open`의 `secret` 인자로만 전달되고 어디에도 저장하지 않는다(키체인 저장은 아직 미구현). 필요하면 `passwordRequired` / `passphraseRequired` 에러로 UI에 입력을 요청한다.
+- `core-ssh` 통합 테스트(`tests/shell.rs`)는 프로세스 안에 russh 서버를 띄워 돌리므로 외부 sshd가 필요 없다. `tests/fixtures/`의 키는 테스트 전용이다.
+- russh는 Windows CI에서 NASM/CMake가 필요 없도록 `aws-lc-rs` 대신 `ring` 백엔드를 쓴다.
+- M2 남은 일: 비밀번호 키체인 저장(`keyring`), 로컬 터미널(💻), keyboard-interactive 인증, 출력 폭주 시 묶어 보내기.
 
 ### 에러 처리
 

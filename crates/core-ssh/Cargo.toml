@@ -1,0 +1,17 @@
+[package]
+name = "core-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tokio = { version = "1", features = ["rt", "sync", "time", "macros", "net"] }
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

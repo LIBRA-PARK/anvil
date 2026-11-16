@@ -146,7 +146,8 @@ button {
   border-radius: 4px;
   text-align: left;
 }
-.channel:hover {
+.channel:hover,
+.channel.active {
   background: var(--bg-hover);
   color: var(--text);
 }
@@ -206,7 +207,91 @@ button {
 }
 .workspace {
   flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.tab-pane {
+  height: 100%;
   overflow: auto;
+}
+
+/* ── 터미널 ── */
+.terminal {
+  position: relative;
+  height: 100%;
+  background: #1a1b1e;
+  padding: 6px 0 0 8px;
+  overflow: hidden;
+}
+.terminal-screen {
+  height: 100%;
+}
+.terminal-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+/* 종료 안내는 화면 내용을 가리지 않도록 아래쪽에 띄운다. */
+.terminal-overlay.bottom {
+  inset: auto 0 16px 0;
+  background: none;
+  pointer-events: none;
+}
+.terminal-card {
+  background: var(--bg-main);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  user-select: text;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.terminal-card h3,
+.terminal-card p {
+  margin: 0;
+}
+.terminal-card p {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.terminal-card.compact {
+  flex-direction: row;
+  align-items: center;
+  padding: 10px 14px;
+  pointer-events: auto;
+}
+.terminal-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 320px;
+}
+.terminal-card input {
+  background: var(--bg-hostbar);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
+.terminal-card input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.fingerprint {
+  background: var(--bg-hostbar);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: Menlo, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
 }
 .welcome {
   padding: 48px;

@@ -1,3 +1,4 @@
+import { Channel } from "@tauri-apps/api/core";
 import { commands } from "./bindings";
 import type { AppError, Host, NewHost } from "./types";
 
@@ -37,4 +38,77 @@ export async function removeHost(id: string): Promise<void> {
     return;
   }
   await commands.removeHost(id);
+}
+
+// ── 터미널 ──
+
+export interface TerminalOpenOptions {
+  hostId: string;
+  cols: number;
+  rows: number;
+  /** 비밀번호 또는 개인키 패스프레이즈 (필요할 때만) */
+  secret?: string;
+  /** 사용자가 확인한 호스트 키 지문 (`hostKeyUnknown` 에러의 message) */
+  trustedHostKey?: string;
+}
+
+export interface TerminalHandlers {
+  /** 셸 출력. xterm에 그대로 쓰면 된다. */
+  onOutput: (data: Uint8Array) => void;
+  /** 셸 종료. 연결이 끊겨서 끝났다면 code는 null. */
+  onExit: (code: number | null) => void;
+}
+
+/** 브라우저 미리보기용: 입력을 그대로 되돌려 주는 가짜 셸 */
+const mockTerminals = new Map<string, TerminalHandlers>();
+const encoder = new TextEncoder();
+
+/** 호스트에 접속해 셸을 열고 세션 id를 돌려준다. 실패하면 AppError를 던진다. */
+export async function openTerminal(
+  options: TerminalOpenOptions,
+  handlers: TerminalHandlers,
+): Promise<string> {
+  if (!inTauri) {
+    const id = crypto.randomUUID();
+    mockTerminals.set(id, handlers);
+    const notice = "브라우저 미리보기입니다. 실제 SSH 접속은 `npm run tauri dev`에서 동작합니다.\r\n$ ";
+    setTimeout(() => handlers.onOutput(encoder.encode(notice)));
+    return id;
+  }
+  const onOutput = new Channel<ArrayBuffer>();
+  onOutput.onmessage = (buffer) => handlers.onOutput(new Uint8Array(buffer));
+  const onExit = new Channel<{ code?: number | null }>();
+  onExit.onmessage = ({ code }) => handlers.onExit(code ?? null);
+
+  return commands.terminalOpen(
+    options.hostId,
+    options.cols,
+    options.rows,
+    options.secret ?? null,
+    options.trustedHostKey ?? null,
+    onOutput,
+    onExit,
+  );
+}
+
+export async function writeTerminal(sessionId: string, data: string): Promise<void> {
+  if (!inTauri) {
+    const echo = data.replace(/\r/g, "\r\n$ ").replace(/\x7f/g, "\b \b");
+    mockTerminals.get(sessionId)?.onOutput(encoder.encode(echo));
+    return;
+  }
+  await commands.terminalWrite(sessionId, data);
+}
+
+export async function resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
+  if (!inTauri) return;
+  await commands.terminalResize(sessionId, cols, rows);
+}
+
+export async function closeTerminal(sessionId: string): Promise<void> {
+  if (!inTauri) {
+    mockTerminals.delete(sessionId);
+    return;
+  }
+  await commands.terminalClose(sessionId);
 }

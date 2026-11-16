@@ -1,14 +1,27 @@
-import { LOCAL_ID, type Host, type TabKind } from "../types";
+import { LOCAL_ID, type Host, type Tab, type TabKind } from "../types";
 
 interface Props {
   /** null이면 로컬 머신 */
   host: Host | null;
+  /** 이 호스트에 열려 있는 터미널 탭 */
+  terminals: Tab[];
+  activeTabId: string;
   onOpen: (hostId: string, kind: TabKind, title: string) => void;
+  onNewTerminal: (host: Host) => void;
+  onActivate: (tabId: string) => void;
   onRemove: (id: string) => void;
 }
 
 /** 선택한 호스트의 기능 채널 목록 (Discord의 채널 사이드바 위치) */
-export function ChannelSidebar({ host, onOpen, onRemove }: Props) {
+export function ChannelSidebar({
+  host,
+  terminals,
+  activeTabId,
+  onOpen,
+  onNewTerminal,
+  onActivate,
+  onRemove,
+}: Props) {
   const hostId = host?.id ?? LOCAL_ID;
   const prefix = host ? host.name : "로컬";
 
@@ -33,7 +46,26 @@ export function ChannelSidebar({ host, onOpen, onRemove }: Props) {
       <div className="sidebar-body">
         <section>
           <h3 className="section-title">터미널</h3>
-          {channel("terminal", "#", "셸")}
+          {host ? (
+            <>
+              {/* 열려 있는 세션은 채널처럼 나열하고, 누르면 그 탭으로 이동한다. */}
+              {terminals.map((t) => (
+                <button
+                  key={t.id}
+                  className={`channel ${t.id === activeTabId ? "active" : ""}`}
+                  onClick={() => onActivate(t.id)}
+                >
+                  <span className="channel-icon">#</span>
+                  {t.title.slice(prefix.length + 3)}
+                </button>
+              ))}
+              <button className="channel" onClick={() => onNewTerminal(host)}>
+                <span className="channel-icon">+</span>새 터미널
+              </button>
+            </>
+          ) : (
+            channel("terminal", "#", "셸")
+          )}
         </section>
         <section>
           <h3 className="section-title">파일</h3>
@@ -50,7 +82,8 @@ export function ChannelSidebar({ host, onOpen, onRemove }: Props) {
           <button
             className="danger-link"
             onClick={() => {
-              if (confirm(`'${host.name}' 호스트를 삭제할까요?`)) onRemove(host.id);
+              const open = terminals.length > 0 ? `\n열려 있는 터미널 ${terminals.length}개도 닫힙니다.` : "";
+              if (confirm(`'${host.name}' 호스트를 삭제할까요?${open}`)) onRemove(host.id);
             }}
           >
             호스트 삭제

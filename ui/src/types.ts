@@ -8,6 +8,10 @@ export const LOCAL_ID = "local";
 export type TabKind = "welcome" | "terminal" | "files" | "editor" | "diff";
 
 export interface Tab {
+  /**
+   * 기본은 `${hostId}:${kind}` (호스트당 하나, 다시 열면 기존 탭으로 이동).
+   * 터미널은 한 호스트에 여러 개 열 수 있어 `${hostId}:terminal:${번호}`를 쓴다.
+   */
   id: string;
   hostId: string;
   kind: TabKind;

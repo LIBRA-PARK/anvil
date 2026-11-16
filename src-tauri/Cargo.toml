@@ -35,3 +35,5 @@ specta.workspace = true
 specta-typescript.workspace = true
 tauri-specta.workspace = true
 core-config = { path = "../crates/core-config" }
+core-ssh = { path = "../crates/core-ssh" }
+uuid.workspace = true
