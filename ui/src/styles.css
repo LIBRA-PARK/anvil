@@ -516,3 +516,149 @@ button {
   align-items: flex-start;
   gap: 12px;
 }
+
+/* ── 에디터 ── */
+.tab-dirty {
+  color: var(--accent);
+}
+.editor {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #1f2023;
+}
+.editor-surface {
+  flex: 1;
+  min-height: 0;
+  user-select: text;
+}
+.editor-status {
+  position: absolute;
+  inset: 0 0 30px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+  background: #1f2023;
+  padding: 24px;
+  text-align: center;
+}
+.editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--bg-sidebar);
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.editor-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: Menlo, Consolas, monospace;
+}
+.btn-primary.small {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* ── Git 변경사항 ── */
+.diff {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.diff-branch {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  padding: 0 6px;
+}
+.diff-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+}
+.diff-list {
+  overflow: auto;
+  padding: 4px 0;
+  border-right: 1px solid #1a1b1e;
+}
+.diff-list .file-row {
+  padding-left: 10px;
+}
+.diff-list .file-note {
+  white-space: normal;
+  line-height: 1.5;
+}
+.diff-editor {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  background: #1f2023;
+}
+.diff-editor .editor-surface {
+  flex: 1;
+  min-width: 0;
+}
+.diff-notice {
+  inset: 0;
+}
+.diff-badge {
+  width: 16px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12px;
+  font-family: Menlo, Consolas, monospace;
+}
+.diff-badge.modified,
+.diff-badge.renamed {
+  color: #e2b93d;
+}
+.diff-badge.added,
+.diff-badge.untracked {
+  color: #3ba55d;
+}
+.diff-badge.deleted,
+.diff-badge.conflicted {
+  color: var(--danger);
+}
+
+/* ── 업데이트 알림 ── */
+.update-banner {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+.btn-secondary.small {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+.overlay-card label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 400;
+}
+.overlay-card label.checkbox input {
+  padding: 0;
+}

@@ -1,0 +1,23 @@
+[package]
+name = "core-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+specta.workspace = true
+thiserror.workspace = true
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt"] }
+# 네트워크 기능(https/ssh)은 쓰지 않는다. 시스템 libgit2에 기대지 않도록 소스를 함께 빌드한다.
+git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
+core-ssh = { path = "../core-ssh" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+uuid.workspace = true

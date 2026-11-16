@@ -1,0 +1,165 @@
+name: Release
+
+# v로 시작하는 태그를 푸시하면 세 OS용 설치 파일을 빌드해 GitHub 릴리스 초안에 올린다.
+#   git tag v0.2.0 && git push origin v0.2.0
+# 초안을 확인하고 "Publish"를 눌러야 사용자에게 공개되고 자동 업데이트 대상이 된다.
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 빌드 (${{ matrix.name }})
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+          - name: Linux
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: Windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 버전은 세 파일에 적혀 있다. 태그와 하나라도 다르면 잘못된 릴리스가 나가므로 여기서 멈춘다.
+      - name: 태그와 버전 일치 확인
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          pkg=$(node -p "require('./package.json').version")
+          cargo=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+          echo "tag=$tag tauri.conf.json=$conf package.json=$pkg Cargo.toml=$cargo"
+          if [ "$tag" != "$conf" ] || [ "$tag" != "$pkg" ] || [ "$tag" != "$cargo" ]; then
+            echo "::error::태그(v$tag)와 버전이 일치하지 않습니다. 세 파일의 version을 맞춘 뒤 다시 태그하세요."
+            exit 1
+          fi
+
+      - name: Linux 시스템 의존성 설치
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # rust-toolchain.toml에 고정된 버전에 빌드 대상을 추가
+      - run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # 서명에 쓰는 시크릿은 모두 선택 사항이다. 등록된 것만 환경 변수로 넘긴다.
+      # (빈 값이 넘어가면 Tauri가 서명을 시도하다 실패하므로 아예 설정하지 않는다)
+      - name: 서명 설정
+        id: signing
+        shell: bash
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          args="--target ${{ matrix.target }}"
+
+          # 자동 업데이트: 개인키가 있어야 업데이트용 서명 파일과 latest.json을 만들 수 있다.
+          if [ -n "$UPDATER_KEY" ]; then
+            {
+              echo "TAURI_SIGNING_PRIVATE_KEY<<__EOF__"
+              echo "$UPDATER_KEY"
+              echo "__EOF__"
+              echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$UPDATER_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            args="$args --config src-tauri/tauri.release.conf.json"
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY가 없어 자동 업데이트용 파일을 만들지 않습니다."
+          fi
+
+          # macOS: Developer ID 인증서가 있으면 서명하고, Apple ID까지 있으면 공증도 한다.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            if [ -n "$APPLE_CERTIFICATE" ]; then
+              {
+                echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE"
+                echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+                echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+              } >> "$GITHUB_ENV"
+              if [ -n "$APPLE_ID" ]; then
+                {
+                  echo "APPLE_ID=$APPLE_ID"
+                  echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+                  echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+                } >> "$GITHUB_ENV"
+              fi
+            else
+              echo "::warning::APPLE_CERTIFICATE가 없어 임시(ad-hoc) 서명만 합니다. 사용자는 처음 실행할 때 Gatekeeper 경고를 보게 됩니다."
+            fi
+          fi
+
+          # Windows: 코드 서명 인증서(.pfx, base64)가 있으면 인증서 저장소에 넣고 지문을 Tauri에 알려 준다.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            if [ -n "$WINDOWS_CERTIFICATE" ]; then
+              echo "import=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::WINDOWS_CERTIFICATE가 없어 서명하지 않습니다. 사용자는 SmartScreen 경고를 보게 됩니다."
+            fi
+          fi
+
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+
+      - name: Windows 인증서 가져오기
+        if: steps.signing.outputs.import == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP "certificate.pfx"
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $path -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $path
+          # 인증서 지문을 담은 설정 조각을 만들어 빌드에 넘긴다.
+          $config = @{ bundle = @{ windows = @{
+            certificateThumbprint = $cert.Thumbprint
+            digestAlgorithm = "sha256"
+            timestampUrl = "http://timestamp.digicert.com"
+          } } } | ConvertTo-Json -Depth 5
+          $configPath = Join-Path $env:RUNNER_TEMP "windows-sign.conf.json"
+          Set-Content -Path $configPath -Value $config -Encoding utf8
+          "WINDOWS_SIGN_ARGS=--config $configPath" >> $env:GITHUB_ENV
+
+      - name: 빌드 및 릴리스 초안에 업로드
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Anvil ${{ github.ref_name }}
+          releaseBody: 변경 내용은 커밋 기록을 참고하세요.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ steps.signing.outputs.args }} ${{ env.WINDOWS_SIGN_ARGS }}

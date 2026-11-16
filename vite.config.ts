@@ -16,5 +16,7 @@ export default defineConfig({
     outDir: "../dist",
     emptyOutDir: true,
     target: "es2021",
+    // Monaco 청크(지연 로딩)가 수 MB라 기본 경고 기준을 넘는다. 데스크톱 앱이라 문제없다.
+    chunkSizeWarningLimit: 5000,
   },
 });

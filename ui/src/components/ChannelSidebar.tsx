@@ -7,7 +7,8 @@ interface Props {
   terminals: Tab[];
   activeTabId: string;
   onOpen: (hostId: string, kind: TabKind, title: string) => void;
-  onNewTerminal: (host: Host) => void;
+  /** 호스트 id와 탭 제목에 쓸 이름 */
+  onNewTerminal: (hostId: string, name: string) => void;
   onActivate: (tabId: string) => void;
   onRemove: (id: string) => void;
 }
@@ -46,26 +47,20 @@ export function ChannelSidebar({
       <div className="sidebar-body">
         <section>
           <h3 className="section-title">터미널</h3>
-          {host ? (
-            <>
-              {/* 열려 있는 세션은 채널처럼 나열하고, 누르면 그 탭으로 이동한다. */}
-              {terminals.map((t) => (
-                <button
-                  key={t.id}
-                  className={`channel ${t.id === activeTabId ? "active" : ""}`}
-                  onClick={() => onActivate(t.id)}
-                >
-                  <span className="channel-icon">#</span>
-                  {t.title.slice(prefix.length + 3)}
-                </button>
-              ))}
-              <button className="channel" onClick={() => onNewTerminal(host)}>
-                <span className="channel-icon">+</span>새 터미널
-              </button>
-            </>
-          ) : (
-            channel("terminal", "#", "셸")
-          )}
+          {/* 열려 있는 세션은 채널처럼 나열하고, 누르면 그 탭으로 이동한다. */}
+          {terminals.map((t) => (
+            <button
+              key={t.id}
+              className={`channel ${t.id === activeTabId ? "active" : ""}`}
+              onClick={() => onActivate(t.id)}
+            >
+              <span className="channel-icon">#</span>
+              {t.title.slice(prefix.length + 3)}
+            </button>
+          ))}
+          <button className="channel" onClick={() => onNewTerminal(hostId, prefix)}>
+            <span className="channel-icon">+</span>새 터미널
+          </button>
         </section>
         <section>
           <h3 className="section-title">파일</h3>

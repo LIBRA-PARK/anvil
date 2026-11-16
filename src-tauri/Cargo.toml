@@ -39,3 +39,11 @@ core-ssh = { path = "../crates/core-ssh" }
 uuid.workspace = true
 core-fs = { path = "../crates/core-fs" }
 tokio = { version = "1", features = ["sync"] }
+core-git = { path = "../crates/core-git" }
+core-pty = { path = "../crates/core-pty" }
+core-secrets = { path = "../crates/core-secrets" }
+
+# 자동 업데이트는 데스크톱에서만 지원된다.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

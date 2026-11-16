@@ -10,6 +10,7 @@
 
 mod connection;
 mod error;
+mod exec;
 mod host_key;
 mod pool;
 mod shell;
@@ -17,6 +18,7 @@ mod subsystem;
 
 pub use connection::{connect, Auth, ConnectParams, Connection};
 pub use error::SshError;
+pub use exec::{shell_quote, ExecOutput};
 pub use host_key::HostKeyPolicy;
 pub use pool::SshPool;
 pub use shell::{Shell, ShellEvent};

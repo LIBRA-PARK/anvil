@@ -1,11 +1,15 @@
 //! SFTP 원격 파일 시스템.
 
-use crate::{sort_entries, DirEntry, DirListing, EntryKind, FileSystem, FsError, Result};
+use crate::{
+    sort_entries, too_large, validate_name, DirEntry, DirListing, EntryKind, FileSystem, FsError,
+    Result,
+};
 use core_ssh::Connection;
 use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::client::SftpSession;
-use russh_sftp::protocol::{FileAttributes, StatusCode};
+use russh_sftp::protocol::{FileAttributes, OpenFlags, StatusCode};
 use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
 
 /// 이미 인증된 SSH 연결 위에 연 SFTP 세션.
 ///
@@ -48,6 +52,11 @@ impl SftpFs {
             other => FsError::Io(format!("{path}: {other}")),
         }
     }
+}
+
+/// POSIX 경로에 이름 하나를 잇는다.
+fn join(dir: &str, name: &str) -> String {
+    format!("{}/{name}", dir.trim_end_matches('/'))
 }
 
 fn kind_of(attrs: &FileAttributes) -> EntryKind {
@@ -130,6 +139,123 @@ impl FileSystem for SftpFs {
             path: dir,
             entries,
         })
+    }
+
+    async fn read_file(&self, path: &str, max_bytes: u64) -> Result<Vec<u8>> {
+        let metadata = self
+            .session
+            .metadata(path)
+            .await
+            .map_err(|e| self.map_err(e, path))?;
+        if metadata.is_dir() {
+            return Err(FsError::Io(format!("폴더입니다: {path}")));
+        }
+        let size = metadata.size.unwrap_or(0);
+        if size > max_bytes {
+            return Err(too_large(path, size, max_bytes));
+        }
+        self.session
+            .read(path)
+            .await
+            .map_err(|e| self.map_err(e, path))
+    }
+
+    async fn write_file(&self, path: &str, data: &[u8]) -> Result<()> {
+        let flags = OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE;
+        let mut file = self
+            .session
+            .open_with_flags(path, flags)
+            .await
+            .map_err(|e| self.map_err(e, path))?;
+        let io = |e: std::io::Error| {
+            if self.is_closed() {
+                FsError::Disconnected
+            } else {
+                FsError::Io(format!("{path}: {e}"))
+            }
+        };
+        file.write_all(data).await.map_err(io)?;
+        // 닫기까지 성공해야 서버에 모두 기록된 것이다.
+        file.shutdown().await.map_err(io)?;
+        Ok(())
+    }
+
+    async fn create_dir(&self, dir: &str, name: &str) -> Result<String> {
+        let path = join(dir, validate_name(name)?);
+        if self.session.symlink_metadata(path.as_str()).await.is_ok() {
+            return Err(FsError::AlreadyExists(path));
+        }
+        self.session
+            .create_dir(path.as_str())
+            .await
+            .map_err(|e| self.map_err(e, &path))?;
+        Ok(path)
+    }
+
+    async fn rename(&self, path: &str, new_name: &str) -> Result<String> {
+        let name = validate_name(new_name)?;
+        let to = match parent_of(path) {
+            Some(parent) => join(&parent, name),
+            None => return Err(FsError::InvalidName(new_name.into())),
+        };
+        // 서버에 따라 대상을 덮어쓸 수 있으므로 먼저 확인한다.
+        if to != path && self.session.symlink_metadata(to.as_str()).await.is_ok() {
+            return Err(FsError::AlreadyExists(to));
+        }
+        self.session
+            .rename(path, to.as_str())
+            .await
+            .map_err(|e| self.map_err(e, path))?;
+        Ok(to)
+    }
+
+    async fn remove(&self, path: &str) -> Result<()> {
+        // 링크를 따라가지 않는 정보: 폴더를 가리키는 링크는 링크만 지운다.
+        let metadata = self
+            .session
+            .symlink_metadata(path)
+            .await
+            .map_err(|e| self.map_err(e, path))?;
+        if !metadata.is_dir() {
+            return self
+                .session
+                .remove_file(path)
+                .await
+                .map_err(|e| self.map_err(e, path));
+        }
+
+        // SFTP에는 재귀 삭제가 없어서 안쪽부터 하나씩 지운다. (재귀 호출 대신 스택 사용)
+        // `pending`에는 아직 내용을 읽지 않은 폴더, `emptied`에는 내용을 다 지운 뒤 지울 폴더가 쌓인다.
+        let mut pending = vec![path.to_string()];
+        let mut emptied = Vec::new();
+        while let Some(dir) = pending.pop() {
+            let entries = self
+                .session
+                .read_dir(dir.as_str())
+                .await
+                .map_err(|e| self.map_err(e, &dir))?;
+            for entry in entries {
+                let child = entry.path();
+                // read_dir이 주는 속성은 링크 자체의 것이므로 링크는 파일로 지워진다.
+                if entry.metadata().is_dir() {
+                    pending.push(child);
+                } else {
+                    self.session
+                        .remove_file(child.as_str())
+                        .await
+                        .map_err(|e| self.map_err(e, &child))?;
+                }
+            }
+            emptied.push(dir);
+        }
+        // 나중에 발견한(더 깊은) 폴더부터 지운다.
+        for dir in emptied.into_iter().rev() {
+            self.session
+                .remove_dir(dir.as_str())
+                .await
+                .map_err(|e| self.map_err(e, &dir))?;
+        }
+        Ok(())
     }
 }
 

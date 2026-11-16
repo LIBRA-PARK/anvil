@@ -5,29 +5,30 @@ Rust + [Tauri 2](https://v2.tauri.app) + React로 만듭니다.
 
 ## 기능 로드맵
 
-| 단계 | 내용                                            | 상태 |
-| ---- | ----------------------------------------------- | ---- |
-| M1   | Tauri 뼈대, 3단 레이아웃, 호스트 추가/삭제/저장 | ✅   |
-| M2   | SSH 접속 + xterm.js 터미널 (다중 세션)          | 🚧   |
-| M3   | SFTP 파일 트리                                  | 🚧   |
-| M4   | Monaco 코드 에디터 (원격 파일 열기/저장)        | ⏳   |
-| M5   | Git Diff (로컬 · 원격)                          | ⏳   |
-| M6   | GitHub Actions 3개 OS 크로스 빌드               | ⏳   |
+| 단계 | 내용                                                   | 상태 |
+| ---- | ------------------------------------------------------ | ---- |
+| M1   | Tauri 뼈대, 3단 레이아웃, 호스트 추가/삭제/저장        | ✅   |
+| M2   | SSH 접속 + xterm.js 터미널 (다중 세션, 로컬 셸 포함)   | ✅   |
+| M3   | 파일 트리 (로컬 · SFTP), 새 폴더 · 이름 변경 · 삭제    | ✅   |
+| M4   | Monaco 코드 에디터 (원격 파일 열기/저장)               | ✅   |
+| M5   | Git Diff (로컬 · 원격)                                 | ✅   |
+| M6   | 릴리스 워크플로(3개 OS 설치 파일), 서명, 자동 업데이트 | ✅   |
 
 ## 구조
 
 ```
 anvil/
 ├── Cargo.toml          # Cargo 워크스페이스
-├── crates/
-│   ├── core-config/    # 호스트 목록 저장 (Tauri 비의존)
-│   ├── core-ssh/       # SSH 접속 · 인증 · 원격 셸 (russh, Tauri 비의존)
-│   └── core-fs/        # 로컬 · SFTP 파일 시스템 공통 트레잇
+├── crates/             # Tauri에 의존하지 않는 도메인 로직
+│   ├── core-config/    # 호스트 목록 저장
+│   ├── core-ssh/       # SSH 접속 · 인증 · 원격 셸 · 명령 실행 (russh)
+│   ├── core-pty/       # 로컬 셸 (PTY / ConPTY)
+│   ├── core-fs/        # 로컬 · SFTP 파일 시스템 공통 트레잇
+│   ├── core-git/       # 로컬(libgit2) · 원격 Git 변경사항 공통 트레잇
+│   └── core-secrets/   # OS 보안 저장소(키체인 등)
 ├── src-tauri/          # Tauri 앱 (커맨드 연결)
 └── ui/                 # React + TypeScript 프론트엔드
 ```
-
-이후 `core-git` 크레이트가 추가됩니다.
 
 ## 개발 환경 준비
 
@@ -66,3 +67,23 @@ npm run tauri build    # 배포용 빌드
 ## 라이선스
 
 [MIT](LICENSE)
+
+## 릴리스
+
+1. 세 파일의 버전을 올립니다: `Cargo.toml`(`[workspace.package]`), `package.json`, `src-tauri/tauri.conf.json`.
+2. 커밋한 뒤 같은 버전으로 태그를 푸시합니다.
+
+   ```bash
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+3. GitHub Actions가 macOS · Linux · Windows 설치 파일을 빌드해 릴리스 **초안**에 올립니다. 내용을 확인하고 공개하세요.
+
+서명용 시크릿은 선택 사항입니다. 등록하지 않으면 그 단계만 건너뜁니다.
+
+| 시크릿                                                                      | 용도                                      |
+| --------------------------------------------------------------------------- | ----------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`           | 자동 업데이트 서명 (없으면 업데이트 불가) |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | macOS 코드 서명                           |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`                               | macOS 공증                                |
+| `WINDOWS_CERTIFICATE`(base64 .pfx), `WINDOWS_CERTIFICATE_PASSWORD`          | Windows 코드 서명                         |

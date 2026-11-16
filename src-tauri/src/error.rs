@@ -6,6 +6,8 @@
 
 use core_config::ConfigError;
 use core_fs::FsError;
+use core_git::GitError;
+use core_pty::PtyError;
 use core_ssh::SshError;
 use serde::Serialize;
 
@@ -66,11 +68,36 @@ impl From<FsError> for AppError {
         match e {
             FsError::NotFound(_) => Self::NotFound(message),
             FsError::PermissionDenied(_) => Self::PermissionDenied(message),
-            FsError::NotADirectory(_) => Self::InvalidInput(message),
+            FsError::NotADirectory(_)
+            | FsError::TooLarge { .. }
+            | FsError::InvalidName(_)
+            | FsError::AlreadyExists(_) => Self::InvalidInput(message),
             FsError::Disconnected => Self::Connection(message),
             // 접속 단계의 에러는 종류를 그대로 살려 UI가 비밀번호 입력 등으로 이어 갈 수 있게 한다.
             FsError::Ssh(ssh) => ssh.into(),
             FsError::Io(_) => Self::Io(message),
+        }
+    }
+}
+
+impl From<GitError> for AppError {
+    fn from(e: GitError) -> Self {
+        let message = e.to_string();
+        match e {
+            GitError::NotARepository(_) | GitError::TooLarge { .. } => Self::InvalidInput(message),
+            GitError::GitNotInstalled => Self::Io(message),
+            GitError::Ssh(ssh) => ssh.into(),
+            GitError::Other(_) => Self::Io(message),
+        }
+    }
+}
+
+impl From<PtyError> for AppError {
+    fn from(e: PtyError) -> Self {
+        let message = e.to_string();
+        match e {
+            PtyError::Spawn(_) => Self::Io(message),
+            PtyError::Closed => Self::Connection(message),
         }
     }
 }

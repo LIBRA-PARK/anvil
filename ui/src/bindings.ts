@@ -11,9 +11,19 @@ export const commands = {
 	addHost: (input: NewHost, options?: InvokeOptions) => __TAURI_INVOKE<Host>("add_host", { input }, options),
 	removeHost: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("remove_host", { id }, options),
 	/**
-	 *  호스트에 접속해(이미 연결되어 있으면 재사용) 새 셸을 연다. 세션 id를 돌려준다.
+	 *  방금 접속에 성공한 비밀번호(또는 개인키 패스프레이즈)를 OS 보안 저장소에 저장한다.
 	 * 
-	 *  - `secret`: 인증 방식에 따라 비밀번호 또는 개인키 패스프레이즈. 저장하지 않는다.
+	 *  사용자가 입력 창에서 "저장"을 선택했을 때만 호출한다. 이후에는 묻지 않고 이 값으로 접속한다.
+	 *  저장소를 쓸 수 없는 환경이면 `io` 에러를 돌려준다.
+	 */
+	sshSaveSecret: (hostId: string, secret: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("ssh_save_secret", { hostId, secret }, options),
+	/**
+	 *  새 셸을 열고 세션 id를 돌려준다.
+	 * 
+	 *  `host_id`가 `"local"`이면 이 머신의 기본 셸을, 아니면 해당 호스트에 접속해
+	 *  (이미 연결되어 있으면 재사용) 원격 셸을 연다.
+	 * 
+	 *  - `secret`: 인증 방식에 따라 비밀번호 또는 개인키 패스프레이즈.
 	 *  - `trusted_host_key`: 사용자가 확인한 호스트 키 지문 (`hostKeyUnknown` 에러의 `message`).
 	 *  - `on_output`: 셸 출력. JSON이 아니라 바이너리(`ArrayBuffer`)로 전달된다.
 	 *  - `on_exit`: 셸이 끝나면 한 번 호출된다.
@@ -21,20 +31,47 @@ export const commands = {
 	terminalOpen: (hostId: string, cols: number, rows: number, secret: string | null, trustedHostKey: string | null, onOutput: Channel<ArrayBuffer>, onExit: Channel<TerminalExit_Deserialize>, options?: InvokeOptions) => __TAURI_INVOKE<string>("terminal_open", { hostId, cols, rows, secret, trustedHostKey, onOutput, onExit }, options),
 	/**  키 입력을 셸로 보낸다. */
 	terminalWrite: (sessionId: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("terminal_write", { sessionId, data }, options),
-	/**  터미널 크기가 바뀌었음을 원격 PTY에 알린다. */
+	/**  터미널 크기가 바뀌었음을 셸 쪽 PTY에 알린다. */
 	terminalResize: (sessionId: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("terminal_resize", { sessionId, cols, rows }, options),
 	/**  셸을 닫는다. 이미 끝난 세션이면 아무 일도 하지 않는다. */
 	terminalClose: (sessionId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("terminal_close", { sessionId }, options),
 	/**
 	 *  폴더 내용을 읽는다. `path`가 없으면 홈 디렉터리를 읽는다.
 	 * 
-	 *  `host_id`가 `"local"`이면 이 머신의 디스크를, 아니면 해당 호스트를 SFTP로 읽는다.
 	 *  원격은 접속이 필요할 수 있어 `terminal_open`과 같은 방식으로
 	 *  `secret` / `trusted_host_key`를 받고 같은 에러(`passwordRequired` 등)를 돌려준다.
+	 *  아래 파일 커맨드들도 모두 같다.
 	 */
 	fsList: (hostId: string, path: string | null, secret: string | null, trustedHostKey: string | null, options?: InvokeOptions) => __TAURI_INVOKE<DirListing_Serialize>("fs_list", { hostId, path, secret, trustedHostKey }, options),
-	/**  파일 탐색기 탭을 닫을 때 호출한다. 호스트의 SFTP 세션을 정리한다. */
+	/**
+	 *  파일 내용을 읽는다. JSON이 아니라 바이너리(`ArrayBuffer`)로 전달된다.
+	 * 
+	 *  에디터용이므로 10MB를 넘는 파일은 `invalidInput` 에러로 거부한다.
+	 */
+	fsRead: (hostId: string, path: string, secret: string | null, trustedHostKey: string | null, options?: InvokeOptions) => __TAURI_INVOKE<ArrayBuffer>("fs_read", { hostId, path, secret, trustedHostKey }, options),
+	/**  파일 내용을 통째로 바꿔 쓴다(UTF-8). 원격이면 SFTP로 업로드한다. */
+	fsWrite: (hostId: string, path: string, content: string, secret: string | null, trustedHostKey: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("fs_write", { hostId, path, content, secret, trustedHostKey }, options),
+	/**  `dir` 안에 새 폴더를 만들고 그 경로를 돌려준다. */
+	fsCreateDir: (hostId: string, dir: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("fs_create_dir", { hostId, dir, name }, options),
+	/**  같은 폴더 안에서 이름을 바꾸고 새 경로를 돌려준다. */
+	fsRename: (hostId: string, path: string, newName: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("fs_rename", { hostId, path, newName }, options),
+	/**  파일이나 폴더(내용 포함)를 지운다. 되돌릴 수 없으므로 UI에서 먼저 확인받는다. */
+	fsRemove: (hostId: string, path: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("fs_remove", { hostId, path }, options),
+	/**  호스트의 SFTP 세션을 정리한다. 그 호스트의 파일·에디터·Diff 탭이 모두 닫혔을 때 호출한다. */
 	fsClose: (hostId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("fs_close", { hostId }, options),
+	/**
+	 *  `path`가 속한 저장소의 변경 파일 목록을 조사한다 (마지막 커밋 ↔ 작업 폴더).
+	 * 
+	 *  원격은 접속이 필요할 수 있어 다른 커맨드처럼 `secret` / `trusted_host_key`를 받는다.
+	 */
+	gitStatus: (hostId: string, path: string, secret: string | null, trustedHostKey: string | null, options?: InvokeOptions) => __TAURI_INVOKE<GitStatus_Serialize>("git_status", { hostId, path, secret, trustedHostKey }, options),
+	/**
+	 *  변경된 파일 하나의 전후 내용을 읽는다.
+	 * 
+	 *  `root`와 `path`는 `git_status`가 돌려준 값을 그대로 넘긴다.
+	 *  이름이 바뀐 파일은 `old_path`의 내용이 변경 전 내용이 된다.
+	 */
+	gitFileDiff: (hostId: string, root: string, path: string, oldPath: string | null, secret: string | null, trustedHostKey: string | null, options?: InvokeOptions) => __TAURI_INVOKE<FileDiff_Serialize>("git_file_diff", { hostId, root, path, oldPath, secret, trustedHostKey }, options),
 };
 
 /* Types */
@@ -73,6 +110,13 @@ export type AuthMethod =
 { kind: "key"; path: string } | 
 /**  ssh-agent 사용 */
 { kind: "agent" };
+
+/**  HEAD와 비교했을 때 파일이 어떻게 달라졌는지 */
+export type ChangeKind = "modified" | "added" | "deleted" | "renamed" | 
+/**  Git이 아직 추적하지 않는 새 파일 */
+"untracked" | 
+/**  병합 충돌 */
+"conflicted";
 
 /**  폴더 안의 항목 하나 */
 export type DirEntry = DirEntry_Serialize | DirEntry_Deserialize;
@@ -132,6 +176,67 @@ export type EntryKind = "file" | "dir" |
 /**  소켓, 장치 파일, 대상이 없는 심볼릭 링크 등 */
 "other";
 
+/**  파일 하나의 변경 전후 내용 */
+export type FileDiff = FileDiff_Serialize | FileDiff_Deserialize;
+
+/**  파일 하나의 변경 전후 내용 */
+export type FileDiff_Deserialize = {
+	/**  마지막 커밋의 내용. 새 파일이면 `null`. */
+	original?: string | null,
+	/**  작업 폴더의 현재 내용. 삭제된 파일이면 `null`. */
+	modified?: string | null,
+	/**  텍스트가 아니어서 내용을 보여 줄 수 없음 (이때 두 내용은 모두 `null`) */
+	binary: boolean,
+};
+
+/**  파일 하나의 변경 전후 내용 */
+export type FileDiff_Serialize = {
+	/**  마지막 커밋의 내용. 새 파일이면 `null`. */
+	original: string | null,
+	/**  작업 폴더의 현재 내용. 삭제된 파일이면 `null`. */
+	modified: string | null,
+	/**  텍스트가 아니어서 내용을 보여 줄 수 없음 (이때 두 내용은 모두 `null`) */
+	binary: boolean,
+};
+
+export type GitChange = GitChange_Serialize | GitChange_Deserialize;
+
+export type GitChange_Deserialize = {
+	/**  저장소 루트 기준 경로 (구분자는 항상 `/`) */
+	path: string,
+	/**  이름이 바뀐 경우 원래 경로 */
+	oldPath?: string | null,
+	kind: ChangeKind,
+};
+
+export type GitChange_Serialize = {
+	/**  저장소 루트 기준 경로 (구분자는 항상 `/`) */
+	path: string,
+	/**  이름이 바뀐 경우 원래 경로 */
+	oldPath: string | null,
+	kind: ChangeKind,
+};
+
+export type GitStatus = GitStatus_Serialize | GitStatus_Deserialize;
+
+export type GitStatus_Deserialize = {
+	/**  저장소 루트(작업 폴더)의 절대 경로 */
+	root: string,
+	/**  현재 브랜치. detached HEAD면 `None`. */
+	branch?: string | null,
+	/**  경로순으로 정렬된 변경 파일 목록 */
+	changes: GitChange_Deserialize[],
+};
+
+export type GitStatus_Serialize = {
+	/**  저장소 루트(작업 폴더)의 절대 경로 */
+	root: string,
+	/**  현재 브랜치. detached HEAD면 `None`. */
+	branch: string | null,
+	/**  경로순으로 정렬된 변경 파일 목록 */
+	changes: GitChange_Serialize[],
+};
+
 /**  저장된 원격 호스트 */
 export type Host = {
 	id: string,
@@ -156,12 +261,12 @@ export type TerminalExit = TerminalExit_Serialize | TerminalExit_Deserialize;
 
 /**  셸이 끝났을 때 프론트엔드로 보내는 알림 */
 export type TerminalExit_Deserialize = {
-	/**  원격 셸의 종료 코드. 연결이 끊겨서 끝났다면 `null`. */
+	/**  셸의 종료 코드. 연결이 끊기거나 강제로 종료되어 알 수 없으면 `null`. */
 	code?: number | null,
 };
 
 /**  셸이 끝났을 때 프론트엔드로 보내는 알림 */
 export type TerminalExit_Serialize = {
-	/**  원격 셸의 종료 코드. 연결이 끊겨서 끝났다면 `null`. */
+	/**  셸의 종료 코드. 연결이 끊기거나 강제로 종료되어 알 수 없으면 `null`. */
 	code: number | null,
 };

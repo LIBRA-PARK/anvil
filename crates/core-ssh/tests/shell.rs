@@ -106,6 +106,22 @@ impl server::Handler for TestServer {
         Ok(())
     }
 
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        command: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        session.channel_success(channel)?;
+        // 명령을 그대로 stdout으로, 고정 문구를 stderr로 돌려주고 종료 코드 3으로 끝낸다.
+        session.data(channel, [b"ran:", command].concat())?;
+        session.extended_data(channel, 1, b"warn".to_vec())?;
+        session.exit_status_request(channel, 3)?;
+        session.eof(channel)?;
+        session.close(channel)?;
+        Ok(())
+    }
+
     async fn window_change_request(
         &mut self,
         channel: ChannelId,
@@ -531,4 +547,19 @@ async fn 풀은_연결을_공유하고_셸이_모두_닫히면_다시_접속한�
         result = pool.get_or_connect("host", &no_password, &policy).await;
     }
     assert!(matches!(result, Err(SshError::PasswordRequired)));
+}
+
+#[tokio::test]
+async fn 명령_실행은_출력과_종료_코드를_모아_돌려준다() {
+    let client = Client::new(start_server(SERVER_KEY).await);
+    client.trust().await;
+    let connection = connect(&client.params(password()), &client.policy(None))
+        .await
+        .unwrap();
+
+    let output = connection.exec("git status").await.unwrap();
+    assert_eq!(output.stdout, b"ran:git status");
+    assert_eq!(output.stderr_text(), "warn");
+    assert_eq!(output.code, Some(3));
+    assert!(!output.success());
 }

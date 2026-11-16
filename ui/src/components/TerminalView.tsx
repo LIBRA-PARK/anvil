@@ -3,11 +3,18 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../api";
-import type { Host } from "../types";
-import { ConnectPrompt, promptForError, type Credentials, type Prompt } from "./ConnectPrompt";
+import { LOCAL_ID, type Host } from "../types";
+import {
+  ConnectPrompt,
+  promptForError,
+  rememberIfAsked,
+  type Credentials,
+  type Prompt,
+} from "./ConnectPrompt";
 
 interface Props {
-  host: Host;
+  /** null이면 로컬 머신의 셸 */
+  host: Host | null;
   /** 현재 보이는 탭인지 (숨겨진 동안에도 세션과 화면 내용은 유지된다) */
   active: boolean;
 }
@@ -22,6 +29,7 @@ type Phase =
 
 /** SSH 터미널 탭 하나. xterm 인스턴스와 원격 셸 세션을 소유한다. */
 export function TerminalView({ host, active }: Props) {
+  const hostId = host?.id ?? LOCAL_ID;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -75,7 +83,7 @@ export function TerminalView({ host, active }: Props) {
 
     api
       .openTerminal(
-        { hostId: host.id, cols: term.cols, rows: term.rows, ...attempt },
+        { hostId, cols: term.cols, rows: term.rows, ...attempt },
         {
           onOutput: (data) => {
             if (!cancelled) term.write(data);
@@ -83,7 +91,7 @@ export function TerminalView({ host, active }: Props) {
           onExit: (code) => {
             if (cancelled) return;
             sessionRef.current = null;
-            const message = code === null ? "연결이 종료되었습니다." : `셸이 종료되었습니다 (코드 ${code}).`;
+            const message = code === null ? "세션이 종료되었습니다." : `셸이 종료되었습니다 (코드 ${code}).`;
             setPhase({ kind: "ended", message, failed: false });
           },
         },
@@ -96,6 +104,7 @@ export function TerminalView({ host, active }: Props) {
         }
         sessionId = id;
         sessionRef.current = id;
+        rememberIfAsked(hostId, attempt);
         // 접속하는 동안 창 크기가 바뀌었을 수 있으므로 한 번 맞춰 준다.
         api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
         setPhase((prev) => (prev.kind === "connecting" ? { kind: "connected" } : prev));
@@ -103,7 +112,7 @@ export function TerminalView({ host, active }: Props) {
       })
       .catch((e) => {
         if (cancelled) return;
-        const prompt = promptForError(e, host, attempt);
+        const prompt = host ? promptForError(e, host, attempt) : null;
         setPhase(
           prompt ? { kind: "prompt", prompt } : { kind: "ended", message: api.errorMessage(e), failed: true },
         );
@@ -118,7 +127,7 @@ export function TerminalView({ host, active }: Props) {
     };
     // 호스트 정보는 탭이 살아 있는 동안 바뀌지 않는다(수정 기능 없음, 삭제 시 탭이 닫힘).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt, host.id]);
+  }, [attempt, hostId]);
 
   // 탭으로 돌아오면 바로 입력할 수 있게 한다.
   useEffect(() => {
@@ -137,11 +146,11 @@ export function TerminalView({ host, active }: Props) {
       {phase.kind === "connecting" && (
         <div className="overlay">
           <div className="overlay-card">
-            {host.username}@{host.address}:{host.port}에 접속하는 중…
+            {host ? `${host.username}@${host.address}:${host.port}에 접속하는 중…` : "셸을 시작하는 중…"}
           </div>
         </div>
       )}
-      {phase.kind === "prompt" && (
+      {phase.kind === "prompt" && host && (
         <ConnectPrompt
           host={host}
           prompt={phase.prompt}
@@ -155,7 +164,7 @@ export function TerminalView({ host, active }: Props) {
             <span className={phase.failed ? "form-error" : undefined}>{phase.message}</span>
             {/* 틀린 비밀 값을 다시 쓰지 않도록 처음부터 다시 시도한다. */}
             <button className="btn-primary" onClick={() => retry({})}>
-              다시 연결
+              {host ? "다시 연결" : "다시 시작"}
             </button>
           </div>
         </div>

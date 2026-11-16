@@ -1,5 +1,7 @@
 mod error;
 mod fs;
+mod git;
+mod ipc;
 mod ssh;
 mod terminal;
 
@@ -43,6 +45,8 @@ async fn remove_host(state: State<'_, AppState>, id: String) -> AppResult<()> {
     state.hosts.lock()?.remove(&id)?;
     state.ssh.forget_host(&id);
     state.files.close(&id).await;
+    // 저장해 둔 비밀번호도 함께 지운다. 보안 저장소를 쓸 수 없는 환경이어도 삭제 자체는 성공으로 본다.
+    state.ssh.forget_secret(&id).await.ok();
     Ok(())
 }
 
@@ -54,12 +58,20 @@ fn specta_builder() -> Builder<tauri::Wry> {
             list_hosts,
             add_host,
             remove_host,
+            ssh::ssh_save_secret,
             terminal::terminal_open,
             terminal::terminal_write,
             terminal::terminal_resize,
             terminal::terminal_close,
             fs::fs_list,
+            fs::fs_read,
+            fs::fs_write,
+            fs::fs_create_dir,
+            fs::fs_rename,
+            fs::fs_remove,
             fs::fs_close,
+            git::git_status,
+            git::git_file_diff,
         ])
         .typ::<AppError>()
 }
@@ -84,8 +96,14 @@ pub fn run() {
 
     let builder = specta_builder();
 
-    tauri::Builder::default()
-        .invoke_handler(builder.invoke_handler())
+    let app = tauri::Builder::default();
+    // 자동 업데이트(새 버전 확인·설치)와 설치 후 재시작
+    #[cfg(desktop)]
+    let app = app
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+
+    app.invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
 

@@ -1,6 +1,11 @@
-import { LOCAL_ID, type Host, type Tab } from "../types";
+import { lazy, Suspense } from "react";
+import { LOCAL_ID, type DirEntry, type Host, type Tab } from "../types";
 import { FilesView } from "./FilesView";
 import { TerminalView } from "./TerminalView";
+
+// Monaco는 번들이 크므로 에디터·Diff 탭을 처음 열 때 불러온다.
+const EditorView = lazy(() => import("./EditorView"));
+const DiffView = lazy(() => import("./DiffView"));
 
 interface Props {
   tabs: Tab[];
@@ -8,16 +13,13 @@ interface Props {
   hosts: Host[];
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
+  onOpenFile: (hostId: string, entry: DirEntry) => void;
+  /** 파일 탐색기에서 보고 있는 폴더의 Git 변경사항 열기 */
+  onOpenDiff: (hostId: string, path: string) => void;
+  /** 저장하지 않은 변경이 있는 탭 id */
+  dirtyTabs: ReadonlySet<string>;
+  onDirtyChange: (tabId: string, dirty: boolean) => void;
 }
-
-// 각 기능은 이후 마일스톤에서 실제 컴포넌트로 교체된다.
-const PLACEHOLDER: Record<Tab["kind"], string> = {
-  welcome: "",
-  terminal: "로컬 터미널은 아직 지원하지 않습니다. 원격 호스트를 추가하면 SSH 터미널을 열 수 있습니다.",
-  files: "",
-  editor: "M4: Monaco 코드 에디터가 들어갈 자리입니다.",
-  diff: "M5: Monaco Diff 뷰어가 들어갈 자리입니다.",
-};
 
 function Welcome({ hostCount }: { hostCount: number }) {
   return (
@@ -36,21 +38,54 @@ function Welcome({ hostCount }: { hostCount: number }) {
 }
 
 /** 탭 바 + 작업 영역 */
-export function MainPanel({ tabs, activeTabId, hosts, onActivate, onClose }: Props) {
+export function MainPanel({
+  tabs,
+  activeTabId,
+  hosts,
+  onActivate,
+  onClose,
+  onOpenFile,
+  onOpenDiff,
+  dirtyTabs,
+  onDirtyChange,
+}: Props) {
   const hasActive = tabs.some((t) => t.id === activeTabId);
 
   const content = (tab: Tab, active: boolean) => {
     if (tab.kind === "welcome") return <Welcome hostCount={hosts.length} />;
-    if (tab.kind === "terminal" && tab.hostId !== LOCAL_ID) {
-      const host = hosts.find((h) => h.id === tab.hostId);
-      if (host) return <TerminalView host={host} active={active} />;
+    // 로컬이면 host는 null. 원격인데 호스트가 없으면(삭제 직후 등) 아무것도 그리지 않는다.
+    const host = hosts.find((h) => h.id === tab.hostId) ?? null;
+    const known = tab.hostId === LOCAL_ID || host !== null;
+    if (tab.kind === "terminal" && known) return <TerminalView host={host} active={active} />;
+    if (tab.kind === "files" && known) {
+      return (
+        <FilesView
+          host={host}
+          onOpenFile={(entry) => onOpenFile(tab.hostId, entry)}
+          onOpenDiff={(path) => onOpenDiff(tab.hostId, path)}
+        />
+      );
     }
-    if (tab.kind === "files") {
-      if (tab.hostId === LOCAL_ID) return <FilesView host={null} />;
-      const host = hosts.find((h) => h.id === tab.hostId);
-      if (host) return <FilesView host={host} />;
+    if (tab.kind === "diff" && known) {
+      return (
+        <Suspense fallback={<div className="placeholder">Diff 뷰어를 불러오는 중…</div>}>
+          <DiffView host={host} initialPath={tab.path} />
+        </Suspense>
+      );
     }
-    return <div className="placeholder">{PLACEHOLDER[tab.kind]}</div>;
+    if (tab.kind === "editor" && known && tab.path !== undefined) {
+      return (
+        <Suspense fallback={<div className="placeholder">에디터를 불러오는 중…</div>}>
+          <EditorView
+            host={host}
+            path={tab.path}
+            active={active}
+            onDirtyChange={(dirty) => onDirtyChange(tab.id, dirty)}
+          />
+        </Suspense>
+      );
+    }
+    return <div className="placeholder" />;
   };
 
   return (
@@ -64,7 +99,10 @@ export function MainPanel({ tabs, activeTabId, hosts, onActivate, onClose }: Pro
             className={`tab ${t.id === activeTabId ? "active" : ""}`}
             onClick={() => onActivate(t.id)}
           >
-            <span className="tab-title">{t.title}</span>
+            <span className="tab-title" title={t.path}>
+              {dirtyTabs.has(t.id) && <span className="tab-dirty">● </span>}
+              {t.title}
+            </span>
             <button
               className="tab-close"
               aria-label={`${t.title} 닫기`}

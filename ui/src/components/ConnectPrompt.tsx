@@ -2,10 +2,12 @@ import { useState, type FormEvent } from "react";
 import * as api from "../api";
 import type { Host } from "../types";
 
-/** 접속 과정에서 사용자가 입력·확인한 값. 요청에만 쓰이고 저장되지 않는다. */
+/** 접속 과정에서 사용자가 입력·확인한 값 */
 export interface Credentials {
   /** 비밀번호 또는 개인키 패스프레이즈 */
   secret?: string;
+  /** 접속에 성공하면 `secret`을 OS 보안 저장소에 저장할지 */
+  remember?: boolean;
   /** 사용자가 확인한 호스트 키 지문 */
   trustedHostKey?: string;
 }
@@ -39,6 +41,16 @@ export function promptForError(e: unknown, host: Host, tried: Credentials): Prom
   }
 }
 
+/**
+ * 접속에 성공한 뒤 호출한다. 사용자가 저장을 선택했다면 비밀 값을 OS 보안 저장소에 넣는다.
+ * 저장에 실패해도 접속 자체는 이미 된 것이므로 에러를 던지지 않는다.
+ */
+export function rememberIfAsked(hostId: string, used: Credentials): void {
+  if (used.remember && used.secret) {
+    api.saveSecret(hostId, used.secret).catch((e) => console.warn("비밀 값 저장 실패:", e));
+  }
+}
+
 interface Props {
   host: Host;
   prompt: Prompt;
@@ -55,7 +67,7 @@ export function ConnectPrompt({ host, prompt, onSubmit, onCancel }: Props) {
         label={prompt.label}
         error={prompt.error}
         target={`${host.username}@${host.address}`}
-        onSubmit={(secret) => onSubmit({ secret })}
+        onSubmit={(secret, remember) => onSubmit({ secret, remember })}
         onCancel={onCancel}
       />
     );
@@ -92,15 +104,16 @@ interface SecretPromptProps {
   label: string;
   error?: string;
   target: string;
-  onSubmit: (secret: string) => void;
+  onSubmit: (secret: string, remember: boolean) => void;
   onCancel: () => void;
 }
 
 function SecretPrompt({ label, error, target, onSubmit, onCancel }: SecretPromptProps) {
   const [value, setValue] = useState("");
+  const [remember, setRemember] = useState(false);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (value) onSubmit(value);
+    if (value) onSubmit(value, remember);
   };
   return (
     <div className="overlay">
@@ -108,6 +121,10 @@ function SecretPrompt({ label, error, target, onSubmit, onCancel }: SecretPrompt
         <label>
           {target}의 {label}
           <input type="password" value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+        </label>
+        <label className="checkbox">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />이
+          컴퓨터의 보안 저장소(키체인)에 저장
         </label>
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">

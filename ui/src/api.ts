@@ -1,6 +1,14 @@
 import { Channel } from "@tauri-apps/api/core";
 import { commands } from "./bindings";
-import { LOCAL_ID, type AppError, type DirListing, type Host, type NewHost } from "./types";
+import {
+  LOCAL_ID,
+  type AppError,
+  type DirListing,
+  type FileDiff,
+  type GitStatus,
+  type Host,
+  type NewHost,
+} from "./types";
 
 // 브라우저(vite dev)에서 단독으로 UI를 볼 때는 Tauri가 없으므로 메모리 목업을 쓴다.
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -38,6 +46,12 @@ export async function removeHost(id: string): Promise<void> {
     return;
   }
   await commands.removeHost(id);
+}
+
+/** 방금 접속에 성공한 비밀번호·패스프레이즈를 OS 보안 저장소(키체인 등)에 저장한다. */
+export async function saveSecret(hostId: string, secret: string): Promise<void> {
+  if (!inTauri) return;
+  await commands.sshSaveSecret(hostId, secret);
 }
 
 // ── 터미널 ──
@@ -162,8 +176,156 @@ export async function listDir(options: ListDirOptions): Promise<DirListing> {
   );
 }
 
-/** 파일 탐색기를 닫을 때 원격 SFTP 세션을 정리한다. */
+export interface FileOptions {
+  hostId: string;
+  path: string;
+  secret?: string;
+  trustedHostKey?: string;
+}
+
+/** 브라우저 미리보기에서 저장한 내용 */
+const mockFiles = new Map<string, string>();
+
+/** 텍스트 파일을 읽는다. UTF-8 텍스트가 아니면 에러를 던진다. */
+export async function readFile(options: FileOptions): Promise<string> {
+  if (!inTauri) {
+    const key = `${options.hostId}:${options.path}`;
+    return mockFiles.get(key) ?? `// ${options.path}\n// 브라우저 미리보기용 내용입니다.\n`;
+  }
+  const buffer = await commands.fsRead(
+    options.hostId,
+    options.path,
+    options.secret ?? null,
+    options.trustedHostKey ?? null,
+  );
+  const bytes = new Uint8Array(buffer);
+  // NUL 바이트가 있거나 UTF-8로 해석되지 않으면 바이너리로 본다.
+  // 잘못 해석한 채로 저장하면 파일이 망가지므로 아예 열지 않는다.
+  if (bytes.subarray(0, 8192).includes(0)) throw new Error("바이너리 파일은 열 수 없습니다.");
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error("UTF-8 텍스트 파일이 아니어서 열 수 없습니다.");
+  }
+}
+
+/** 파일 내용을 통째로 저장한다. 원격이면 SFTP로 업로드된다. */
+export async function writeFile(options: FileOptions & { content: string }): Promise<void> {
+  if (!inTauri) {
+    mockFiles.set(`${options.hostId}:${options.path}`, options.content);
+    return;
+  }
+  await commands.fsWrite(
+    options.hostId,
+    options.path,
+    options.content,
+    options.secret ?? null,
+    options.trustedHostKey ?? null,
+  );
+}
+
+/** `dir` 안에 새 폴더를 만들고 그 경로를 돌려준다. */
+export async function createDir(hostId: string, dir: string, name: string): Promise<string> {
+  if (!inTauri) return `${dir}/${name}`;
+  return commands.fsCreateDir(hostId, dir, name);
+}
+
+/** 같은 폴더 안에서 이름을 바꾸고 새 경로를 돌려준다. */
+export async function renamePath(hostId: string, path: string, newName: string): Promise<string> {
+  if (!inTauri) return path.slice(0, path.lastIndexOf("/") + 1) + newName;
+  return commands.fsRename(hostId, path, newName);
+}
+
+/** 파일이나 폴더(내용 포함)를 지운다. 되돌릴 수 없다. */
+export async function removePath(hostId: string, path: string): Promise<void> {
+  if (!inTauri) return;
+  await commands.fsRemove(hostId, path);
+}
+
+/** 호스트의 파일·에디터·Diff 탭이 모두 닫혔을 때 원격 SFTP 세션을 정리한다. */
 export async function closeFiles(hostId: string): Promise<void> {
   if (!inTauri || hostId === LOCAL_ID) return;
   await commands.fsClose(hostId);
+}
+
+// ── Git ──
+
+/** `path`가 속한 저장소의 변경 파일 목록 (마지막 커밋 ↔ 작업 폴더) */
+export async function gitStatus(options: FileOptions): Promise<GitStatus> {
+  if (!inTauri) {
+    return {
+      root: options.path,
+      branch: "main",
+      changes: [
+        { path: "README.md", oldPath: null, kind: "modified" },
+        { path: "src/new.rs", oldPath: null, kind: "untracked" },
+      ],
+    };
+  }
+  return commands.gitStatus(
+    options.hostId,
+    options.path,
+    options.secret ?? null,
+    options.trustedHostKey ?? null,
+  );
+}
+
+export interface GitFileDiffOptions {
+  hostId: string;
+  /** `gitStatus`가 돌려준 저장소 루트 */
+  root: string;
+  /** 저장소 루트 기준 경로 */
+  path: string;
+  /** 이름이 바뀐 파일의 원래 경로 */
+  oldPath?: string;
+  secret?: string;
+  trustedHostKey?: string;
+}
+
+/** 변경된 파일 하나의 전후 내용 */
+export async function gitFileDiff(options: GitFileDiffOptions): Promise<FileDiff> {
+  if (!inTauri) {
+    const modified = `# ${options.path}\n\n브라우저 미리보기용 내용입니다.\n새로 추가된 줄\n`;
+    const original = options.path.endsWith(".md") ? `# ${options.path}\n\n예전 내용입니다.\n` : null;
+    return { original, modified, binary: false };
+  }
+  return commands.gitFileDiff(
+    options.hostId,
+    options.root,
+    options.path,
+    options.oldPath ?? null,
+    options.secret ?? null,
+    options.trustedHostKey ?? null,
+  );
+}
+
+// ── 자동 업데이트 ──
+
+export interface AvailableUpdate {
+  version: string;
+  /** 릴리스 노트 (없을 수 있다) */
+  notes: string | null;
+  /** 내려받아 설치한 뒤 앱을 다시 시작한다. */
+  install: () => Promise<void>;
+}
+
+/**
+ * 새 버전이 있는지 확인한다. 없으면 null.
+ * 개발 실행이나 브라우저 미리보기에서는 확인하지 않는다.
+ */
+export async function checkForUpdate(): Promise<AvailableUpdate | null> {
+  if (!inTauri || import.meta.env.DEV) return null;
+  // 시작 속도에 영향을 주지 않도록 필요할 때만 플러그인을 불러온다.
+  const { check } = await import("@tauri-apps/plugin-updater");
+  const update = await check();
+  if (!update) return null;
+  return {
+    version: update.version,
+    notes: update.body ?? null,
+    install: async () => {
+      await update.downloadAndInstall();
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    },
+  };
 }
