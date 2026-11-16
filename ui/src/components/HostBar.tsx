@@ -9,7 +9,10 @@ interface Props {
 
 /** 호스트 이름에서 아이콘용 이니셜 2글자를 뽑는다. */
 function initials(name: string): string {
-  const words = name.trim().split(/[\s\-_.]+/).filter(Boolean);
+  const words = name
+    .trim()
+    .split(/[\s\-_.]+/)
+    .filter(Boolean);
   const raw = words.length > 1 ? words[0][0] + words[1][0] : name.slice(0, 2);
   return raw.toUpperCase();
 }

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { errorMessage } from "../api";
 import type { AuthMethod, NewHost } from "../types";
 
 interface Props {
@@ -24,15 +25,14 @@ export function AddHostModal({ onSubmit, onCancel }: Props) {
       setError("포트는 1~65535 사이의 숫자여야 합니다.");
       return;
     }
-    const auth: AuthMethod =
-      authKind === "key" ? { kind: "key", path: keyPath } : { kind: authKind };
+    const auth: AuthMethod = authKind === "key" ? { kind: "key", path: keyPath } : { kind: authKind };
 
     setBusy(true);
     setError(null);
     try {
       await onSubmit({ name, address, port: portNum, username, auth });
     } catch (err) {
-      setError(String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -45,12 +45,23 @@ export function AddHostModal({ onSubmit, onCancel }: Props) {
 
         <label>
           이름
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="prod-server" required autoFocus />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="prod-server"
+            required
+            autoFocus
+          />
         </label>
         <div className="row">
           <label className="grow">
             주소
-            <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.0.10" required />
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="192.168.0.10"
+              required
+            />
           </label>
           <label className="port">
             포트
@@ -59,7 +70,12 @@ export function AddHostModal({ onSubmit, onCancel }: Props) {
         </div>
         <label>
           사용자
-          <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="ubuntu" required />
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="ubuntu"
+            required
+          />
         </label>
         <label>
           인증 방식

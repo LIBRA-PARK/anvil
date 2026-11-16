@@ -1,44 +1,88 @@
+mod error;
+
 use core_config::{Host, HostStore, NewHost};
+use error::AppResult;
 use std::sync::Mutex;
 use tauri::{Manager, State};
+use tauri_specta::{collect_commands, Builder};
+
+pub use error::AppError;
+
+/// 생성되는 TS 바인딩 파일 경로
+const BINDINGS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../ui/src/bindings.ts");
 
 /// 앱 전역 상태
 struct AppState {
     hosts: Mutex<HostStore>,
 }
 
-/// 프론트엔드로 넘길 때 에러는 문자열로 변환한다.
-type CmdResult<T> = Result<T, String>;
-
 #[tauri::command]
-fn list_hosts(state: State<'_, AppState>) -> CmdResult<Vec<Host>> {
-    let store = state.hosts.lock().map_err(|e| e.to_string())?;
-    Ok(store.list().to_vec())
+#[specta::specta]
+fn list_hosts(state: State<'_, AppState>) -> AppResult<Vec<Host>> {
+    Ok(state.hosts.lock()?.list().to_vec())
 }
 
 #[tauri::command]
-fn add_host(state: State<'_, AppState>, input: NewHost) -> CmdResult<Host> {
-    let mut store = state.hosts.lock().map_err(|e| e.to_string())?;
-    store.add(input).map_err(|e| e.to_string())
+#[specta::specta]
+fn add_host(state: State<'_, AppState>, input: NewHost) -> AppResult<Host> {
+    Ok(state.hosts.lock()?.add(input)?)
 }
 
 #[tauri::command]
-fn remove_host(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    let mut store = state.hosts.lock().map_err(|e| e.to_string())?;
-    store.remove(&id).map_err(|e| e.to_string())
+#[specta::specta]
+fn remove_host(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    Ok(state.hosts.lock()?.remove(&id)?)
+}
+
+/// 커맨드 등록과 TS 바인딩 생성을 한곳에서 관리한다.
+/// 새 커맨드는 반드시 여기에 추가해야 프론트엔드에서 보인다.
+fn specta_builder() -> Builder<tauri::Wry> {
+    Builder::<tauri::Wry>::new()
+        .commands(collect_commands![list_hosts, add_host, remove_host])
+        .typ::<AppError>()
+}
+
+fn export_bindings(builder: &Builder<tauri::Wry>) {
+    builder
+        .export(
+            specta_typescript::Typescript::default()
+                .header("// 자동 생성 파일입니다. 직접 수정하지 마세요.\n"),
+            BINDINGS_PATH,
+        )
+        .expect("TS 바인딩 생성 실패");
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let builder = specta_builder();
+
+    // 개발 실행 시마다 바인딩을 최신으로 갱신
+    #[cfg(debug_assertions)]
+    export_bindings(&builder);
+
     tauri::Builder::default()
-        .setup(|app| {
+        .invoke_handler(builder.invoke_handler())
+        .setup(move |app| {
+            builder.mount_events(app);
+
             // OS별 설정 경로 (예: macOS ~/Library/Application Support/dev.anvil.app)
             let path = app.path().app_config_dir()?.join("hosts.json");
             let store = HostStore::load(path)?;
-            app.manage(AppState { hosts: Mutex::new(store) });
+            app.manage(AppState {
+                hosts: Mutex::new(store),
+            });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_hosts, add_host, remove_host])
         .run(tauri::generate_context!())
         .expect("Anvil 실행 중 오류 발생");
+}
+
+#[cfg(test)]
+mod tests {
+    /// `cargo test`로 바인딩을 생성한다.
+    /// CI는 이후 `git diff`로 커밋된 bindings.ts가 최신인지 검사한다.
+    #[test]
+    fn export_bindings() {
+        super::export_bindings(&super::specta_builder());
+    }
 }

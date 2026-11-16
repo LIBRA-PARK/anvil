@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 같은 브랜치에 새 push가 오면 이전 실행은 취소
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # 포맷·린트는 OS와 무관하므로 Linux에서 한 번만 실행
+  lint:
+    name: 린트 / 포맷
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux 시스템 의존성 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      # rust-toolchain.toml에 고정된 버전을 rustup이 자동 설치
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 프론트엔드 빌드 (Tauri 컴파일에 dist 필요)
+        run: npm run build
+      - name: ESLint / Prettier / tsc
+        run: npm run check
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    name: 테스트 (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux 시스템 의존성 설치
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: cargo test
+        run: cargo test --workspace --locked
+      # 테스트가 bindings.ts를 다시 생성하므로, 커밋된 파일과 다르면 실패
+      - name: TS 바인딩 최신 여부 확인
+        if: runner.os == 'Linux'
+        run: git diff --exit-code -- ui/src/bindings.ts

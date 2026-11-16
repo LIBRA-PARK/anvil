@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// SSH 인증 방식
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AuthMethod {
     /// 비밀번호 (비밀번호 자체는 OS 키체인에 저장 예정)
@@ -18,7 +18,7 @@ pub enum AuthMethod {
 }
 
 /// 저장된 원격 호스트
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Host {
     pub id: String,
@@ -30,7 +30,7 @@ pub struct Host {
 }
 
 /// 새 호스트 생성 요청 (id는 서버에서 발급)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NewHost {
     pub name: String,
@@ -127,7 +127,9 @@ mod tests {
             address: "10.0.0.1".into(),
             port: 22,
             username: "ubuntu".into(),
-            auth: AuthMethod::Key { path: "~/.ssh/id_ed25519".into() },
+            auth: AuthMethod::Key {
+                path: "~/.ssh/id_ed25519".into(),
+            },
         }
     }
 
@@ -138,7 +140,10 @@ mod tests {
 
         let mut store = HostStore::load(path.clone()).unwrap();
         let host = store.add(sample()).unwrap();
-        assert_eq!(HostStore::load(path.clone()).unwrap().list(), &[host.clone()]);
+        assert_eq!(
+            HostStore::load(path.clone()).unwrap().list(),
+            std::slice::from_ref(&host)
+        );
 
         store.remove(&host.id).unwrap();
         assert!(HostStore::load(path).unwrap().list().is_empty());

@@ -1,0 +1,6 @@
+# 모든 개발 환경과 CI가 같은 Rust 버전을 쓰도록 고정한다.
+# 버전을 올릴 때는 이 파일만 수정하면 된다.
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

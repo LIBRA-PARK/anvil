@@ -17,7 +17,10 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.listHosts().then(setHosts).catch((e) => setError(String(e)));
+    api
+      .listHosts()
+      .then(setHosts)
+      .catch((e) => setError(api.errorMessage(e)));
   }, []);
 
   const selectedHost = hosts.find((h) => h.id === selectedId) ?? null;
@@ -36,7 +39,7 @@ export default function App() {
       setTabs((prev) => prev.filter((t) => t.hostId !== id));
       setSelectedId(LOCAL_ID);
     } catch (e) {
-      setError(String(e));
+      setError(api.errorMessage(e));
     }
   };
 
