@@ -15,8 +15,10 @@ import {
 interface Props {
   /** null이면 로컬 머신의 셸 */
   host: Host | null;
-  /** 현재 보이는 탭인지 (숨겨진 동안에도 세션과 화면 내용은 유지된다) */
+  /** 현재 보이는 터미널인지 (숨겨진 동안에도 세션과 화면 내용은 유지된다) */
   active: boolean;
+  /** 값이 바뀌면 입력 포커스를 다시 가져온다. (이미 보이는 터미널을 목록에서 다시 눌렀을 때) */
+  focusTick: number;
 }
 
 type Phase =
@@ -27,8 +29,8 @@ type Phase =
   /** 셸이 끝났거나 접속에 실패함 */
   | { kind: "ended"; message: string; failed: boolean };
 
-/** SSH 터미널 탭 하나. xterm 인스턴스와 원격 셸 세션을 소유한다. */
-export function TerminalView({ host, active }: Props) {
+/** 터미널 하나. xterm 인스턴스와 셸 세션(로컬 또는 원격)을 소유한다. */
+export function TerminalView({ host, active, focusTick }: Props) {
   const hostId = host?.id ?? LOCAL_ID;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -73,7 +75,7 @@ export function TerminalView({ host, active }: Props) {
     };
   }, []);
 
-  // 접속: attempt가 바뀔 때마다 새로 시도하고, 탭이 닫히면 세션도 닫는다.
+  // 접속: attempt가 바뀔 때마다 새로 시도하고, 터미널이 닫히면 세션도 닫는다.
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
@@ -129,10 +131,10 @@ export function TerminalView({ host, active }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, hostId]);
 
-  // 탭으로 돌아오면 바로 입력할 수 있게 한다.
+  // 이 터미널이 선택되면 바로 입력할 수 있게 한다.
   useEffect(() => {
     if (active && phase.kind === "connected") termRef.current?.focus();
-  }, [active, phase.kind]);
+  }, [active, phase.kind, focusTick]);
 
   const retry = (next: Credentials) => {
     if (phase.kind === "ended") termRef.current?.write("\r\n");

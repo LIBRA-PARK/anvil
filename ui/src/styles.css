@@ -35,10 +35,16 @@ button {
   color: inherit;
   cursor: pointer;
 }
+/* 숨긴 탭·구역은 display를 따로 지정한 요소라도 반드시 사라져야 한다.
+   (브라우저 기본 규칙은 클래스의 display 지정에 밀린다) */
+[hidden] {
+  display: none !important;
+}
 
 .app {
   display: grid;
-  grid-template-columns: 72px 240px 1fr;
+  /* 가운데 열(사이드바)의 너비는 사이드바가 직접 정한다(경계를 끌어 조절). */
+  grid-template-columns: 72px auto minmax(0, 1fr);
   /* 행 높이를 창 높이로 고정한다. 기본값(auto)이면 내용이 길 때 행이 창 밖으로 늘어나
      안쪽 스크롤이 생기지 않고 아래가 잘린다. */
   grid-template-rows: minmax(0, 1fr);
@@ -103,21 +109,25 @@ button {
   border-radius: 1px;
 }
 
-/* ── 채널 사이드바 ── */
+/* ── 사이드바 (EXPLORER / TERMINAL / GIT) ── */
 .sidebar {
+  position: relative;
   background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
-  min-width: 0;
   min-height: 0;
 }
 .sidebar-header {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid #1a1b1e;
+  flex-shrink: 0;
 }
 .sidebar-title {
   font-weight: 700;
   font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar-sub {
   color: var(--text-muted);
@@ -125,43 +135,139 @@ button {
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.sidebar-body {
+.side-section {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 0;
+  border-bottom: 1px solid #1a1b1e;
+}
+/* 펼쳐진 EXPLORER는 남는 세로 공간을 모두 차지한다. */
+.side-section.grow {
   flex: 1;
-  overflow-y: auto;
-  padding: 8px;
 }
-.section-title {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin: 16px 8px 4px;
-}
-.channel {
+.side-section-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  flex-shrink: 0;
+  padding-right: 6px;
+}
+.side-section-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  padding: 7px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: left;
+}
+.side-section-toggle:hover {
+  color: var(--text);
+}
+.side-section-action {
   border: none;
   background: transparent;
   color: var(--text-muted);
-  padding: 6px 8px;
   border-radius: 4px;
-  text-align: left;
+  width: 22px;
+  height: 22px;
+  padding: 0;
 }
-.channel:hover,
-.channel.active {
+.side-section-action:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+.side-section-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 터미널이 아주 많아져도 탐색기를 밀어내지 않도록 목록 안에서 스크롤한다. */
+.side-section:not(.grow) .side-section-body {
+  max-height: 30vh;
+  overflow-y: auto;
+}
+.explorer-slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.side-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 6px 6px;
+}
+.side-item {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+.side-item:hover,
+.side-item.active {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.side-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* 목록에 바로 놓인 한 줄짜리 항목 (새 터미널, 변경사항) */
+.side-list > .side-item-main {
+  flex: none;
+  color: var(--text-muted);
+}
+.side-list > .side-item-main:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.side-item-close {
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font-size: 16px;
+  padding: 0 6px;
+  visibility: hidden;
+}
+.side-item:hover .side-item-close,
+.side-item.active .side-item-close {
+  visibility: visible;
+}
+.side-item-close:hover {
+  background: var(--bg-elevated);
 }
 .channel-icon {
   width: 18px;
   text-align: center;
 }
 .sidebar-footer {
-  padding: 10px 16px;
-  border-top: 1px solid #1a1b1e;
+  padding: 10px 14px;
+  flex-shrink: 0;
+  /* 구역을 접어 공간이 남아도 맨 아래에 붙는다. */
+  margin-top: auto;
 }
 .danger-link {
   background: none;
@@ -171,12 +277,94 @@ button {
   font-size: 13px;
 }
 
+/* ── 크기 조절 손잡이 ── */
+.resizer {
+  flex-shrink: 0;
+  touch-action: none;
+}
+/* 사이드바 오른쪽 경계에 걸쳐 놓는다. */
+.resizer.x {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+/* 편집기 영역과 터미널 패널 사이 */
+.resizer.y {
+  height: 5px;
+  cursor: row-resize;
+  background: #1a1b1e;
+}
+.resizer:hover,
+.resizer:active {
+  background: var(--accent);
+  opacity: 0.6;
+}
+
 /* ── 메인 패널 ── */
 .main {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+/* 위: 편집기 영역 (탭 + 에디터·Diff) */
+.editor-area {
+  flex: 1;
+  min-width: 0;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+}
+/* 아래: 터미널 패널. 높이는 인라인 스타일로 주고, 접으면 제목 줄만 남는다. */
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-height: 0;
+  /* 창이 작아져도 편집기 영역이 완전히 가려지지 않게 한다. */
+  max-height: calc(100% - 85px);
+  background: #1a1b1e;
+}
+.panel-header {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  min-height: 32px;
+  background: var(--bg-sidebar);
+  border-top: 1px solid #1a1b1e;
+}
+.panel-header .tab-bar {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+}
+.panel-title {
+  align-self: center;
+  padding: 0 10px 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.panel-action {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  width: 30px;
+  padding: 0;
+}
+.panel-action:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
 }
 .tab-bar {
   display: flex;
@@ -235,6 +423,8 @@ button {
 }
 .terminal-screen {
   height: 100%;
+  /* xterm 내부의 z-index가 바깥(안내 창 등) 위로 올라오지 않게 가둔다. */
+  isolation: isolate;
 }
 .overlay {
   position: absolute;
@@ -242,6 +432,11 @@ button {
   display: grid;
   place-items: center;
   background: rgba(0, 0, 0, 0.45);
+}
+/* 앱 전체를 덮는 창 (접속 확인, 이름 입력). 좁은 사이드바나 패널에서 띄워도 잘리지 않는다. */
+.overlay.modal {
+  position: fixed;
+  z-index: 1000;
 }
 /* 종료 안내는 화면 내용을 가리지 않도록 아래쪽에 띄운다. */
 .overlay.bottom {
@@ -328,6 +523,7 @@ button {
 .modal-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 1000;
   background: rgba(0, 0, 0, 0.6);
   display: grid;
   place-items: center;
@@ -416,6 +612,7 @@ button {
 
 .toast {
   position: fixed;
+  z-index: 1100;
   bottom: 16px;
   right: 16px;
   background: var(--danger);
@@ -429,7 +626,8 @@ button {
 /* ── 파일 탐색기 ── */
 .files {
   position: relative;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -468,6 +666,24 @@ button {
   opacity: 0.4;
   cursor: default;
 }
+/* 사이드바의 탐색기는 좁으므로 버튼을 한 줄에, 경로 입력은 그 아래 줄에 둔다. */
+.files .files-toolbar {
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 6px;
+  border-bottom: none;
+}
+.files .files-toolbar input {
+  flex: 1 0 100%;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.files .icon-button {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  font-size: 12px;
+}
 .files-tree {
   flex: 1;
   min-height: 0;
@@ -481,7 +697,8 @@ button {
   width: 100%;
   border: none;
   background: transparent;
-  padding: 3px 12px 3px 0;
+  padding: 3px 8px 3px 0;
+  font-size: 13px;
   text-align: left;
   white-space: nowrap;
 }
@@ -505,11 +722,6 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.file-meta {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
 .file-note {
   color: var(--text-muted);
   font-size: 12px;
@@ -520,7 +732,8 @@ button {
   white-space: normal;
 }
 .files-status {
-  padding: 24px;
+  padding: 12px;
+  font-size: 12px;
   color: var(--text-muted);
   display: flex;
   flex-direction: column;
@@ -543,6 +756,8 @@ button {
   flex: 1;
   min-height: 0;
   user-select: text;
+  /* Monaco 내부의 z-index가 바깥(안내 창 등) 위로 올라오지 않게 가둔다. */
+  isolation: isolate;
 }
 .editor-status {
   position: absolute;
@@ -649,6 +864,7 @@ button {
 /* ── 업데이트 알림 ── */
 .update-banner {
   position: fixed;
+  z-index: 1100;
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);

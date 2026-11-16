@@ -1,18 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "./api";
-import { LOCAL_ID, type DirEntry, type Host, type NewHost, type Tab, type TabKind } from "./types";
+import { LOCAL_ID, type DirEntry, type Host, type NewHost, type Tab } from "./types";
 import { HostBar } from "./components/HostBar";
 import { ChannelSidebar } from "./components/ChannelSidebar";
 import { MainPanel } from "./components/MainPanel";
+import { TerminalPanel } from "./components/TerminalPanel";
 import { AddHostModal } from "./components/AddHostModal";
+import { usePersistentNumber } from "./components/usePersistentNumber";
 
 const WELCOME_TAB: Tab = { id: "welcome", hostId: LOCAL_ID, kind: "welcome", title: "시작" };
+
+/** 터미널 탭은 아래 패널에, 나머지 탭은 위 편집기 영역에 표시된다. */
+const isTerminal = (tab: Tab) => tab.kind === "terminal";
 
 export default function App() {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [selectedId, setSelectedId] = useState<string>(LOCAL_ID);
+  /** 한 번이라도 선택한 호스트. 이들의 탐색기(와 접속)는 호스트를 오가도 유지한다. */
+  const [visited, setVisited] = useState<string[]>([LOCAL_ID]);
+  /** 모든 탭. 편집기 영역 탭과 터미널이 한 배열에 있고, 종류로 표시 위치가 갈린다. */
   const [tabs, setTabs] = useState<Tab[]>([WELCOME_TAB]);
+  /** 편집기 영역에서 보이는 탭 */
   const [activeTabId, setActiveTabId] = useState<string>(WELCOME_TAB.id);
+  /** 터미널 패널에서 보이는 터미널 */
+  const [activeTerminalId, setActiveTerminalId] = useState("");
+  const [panelOpen, setPanelOpen] = useState(true);
+  /** 터미널을 고를 때마다 올려서, 이미 보이는 터미널도 입력 포커스를 다시 가져오게 한다. */
+  const [terminalFocus, setTerminalFocus] = useState(0);
+  const [sidebarWidth, setSidebarWidth] = usePersistentNumber("anvil.layout.sidebarWidth", 260);
+  const [panelHeight, setPanelHeight] = usePersistentNumber("anvil.layout.panelHeight", 280);
   const [showAdd, setShowAdd] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,18 +38,6 @@ export default function App() {
       .then(setHosts)
       .catch((e) => setError(api.errorMessage(e)));
   }, []);
-
-  // 원격 파일 시스템(SFTP)을 쓰는 탭이 호스트에 하나도 남지 않으면 세션을 정리한다.
-  const fsHosts = useRef(new Set<string>());
-  useEffect(() => {
-    const current = new Set(
-      tabs.filter((t) => t.kind === "files" || t.kind === "editor" || t.kind === "diff").map((t) => t.hostId),
-    );
-    for (const hostId of fsHosts.current) {
-      if (!current.has(hostId)) api.closeFiles(hostId).catch(() => {});
-    }
-    fsHosts.current = current;
-  }, [tabs]);
 
   /** 저장하지 않은 변경이 있는 에디터 탭 */
   const [dirtyTabs, setDirtyTabs] = useState<ReadonlySet<string>>(new Set());
@@ -75,11 +79,20 @@ export default function App() {
   };
 
   const selectedHost = hosts.find((h) => h.id === selectedId) ?? null;
+  const hostName = (hostId: string) => hosts.find((h) => h.id === hostId)?.name ?? "로컬";
+  const editorTabs = tabs.filter((t) => !isTerminal(t));
+  const terminalTabs = tabs.filter(isTerminal);
+
+  /** 호스트를 선택한다. 처음 선택하는 호스트는 탐색기가 마운트되면서 바로 접속을 시작한다. */
+  const selectHost = (id: string) => {
+    setSelectedId(id);
+    setVisited((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  };
 
   const handleAdd = async (input: NewHost) => {
     const host = await api.addHost(input);
     setHosts((prev) => [...prev, host]);
-    setSelectedId(host.id);
+    selectHost(host.id);
     setShowAdd(false);
   };
 
@@ -89,11 +102,16 @@ export default function App() {
     try {
       await api.removeHost(id);
       const remaining = tabs.filter((t) => t.hostId !== id);
+      const last = (group: Tab[]) => group[group.length - 1]?.id ?? "";
       setHosts((prev) => prev.filter((h) => h.id !== id));
+      setVisited((prev) => prev.filter((v) => v !== id));
       setTabs(remaining);
-      // 보고 있던 탭이 함께 닫혔다면 남은 탭으로 옮긴다.
+      // 보고 있던 탭이나 터미널이 함께 닫혔다면 남은 것으로 옮긴다.
       if (!remaining.some((t) => t.id === activeTabId)) {
-        setActiveTabId(remaining[remaining.length - 1]?.id ?? "");
+        setActiveTabId(last(remaining.filter((t) => !isTerminal(t))));
+      }
+      if (!remaining.some((t) => t.id === activeTerminalId)) {
+        setActiveTerminalId(last(remaining.filter(isTerminal)));
       }
       setSelectedId(LOCAL_ID);
     } catch (e) {
@@ -101,21 +119,21 @@ export default function App() {
     }
   };
 
-  /** 같은 호스트·종류의 탭이 이미 있으면 그 탭으로 이동하고, 없으면 새로 연다. */
-  const openTab = (hostId: string, kind: TabKind, title: string) => {
-    const id = `${hostId}:${kind}`;
-    if (!tabs.some((t) => t.id === id)) setTabs([...tabs, { id, hostId, kind, title }]);
-    setActiveTabId(id);
+  /** 터미널을 아래 패널에 보이게 하고 입력 포커스를 준다. (패널이 접혀 있으면 펼친다) */
+  const activateTerminal = (id: string) => {
+    setActiveTerminalId(id);
+    setPanelOpen(true);
+    setTerminalFocus((n) => n + 1);
   };
 
-  /** 터미널은 한 호스트에 여러 세션을 열 수 있으므로 누를 때마다 새 탭을 만든다. */
+  /** 터미널은 한 호스트에 여러 세션을 열 수 있으므로 누를 때마다 새로 만든다. */
   const terminalSeq = useRef(new Map<string, number>());
-  const openTerminal = (hostId: string, name: string) => {
+  const openTerminal = (hostId: string) => {
     const n = (terminalSeq.current.get(hostId) ?? 0) + 1;
     terminalSeq.current.set(hostId, n);
     const id = `${hostId}:terminal:${n}`;
-    setTabs([...tabs, { id, hostId, kind: "terminal", title: `${name} · 셸 ${n}` }]);
-    setActiveTabId(id);
+    setTabs([...tabs, { id, hostId, kind: "terminal", title: `${hostName(hostId)} · 셸 ${n}` }]);
+    activateTerminal(id);
   };
 
   /** 파일은 경로마다 탭 하나. 이미 열려 있으면 그 탭으로 이동한다. */
@@ -127,16 +145,22 @@ export default function App() {
     setActiveTabId(id);
   };
 
-  /** Diff 탭은 호스트당 하나. 이미 열려 있으면 조사할 폴더만 바꾼다. */
-  const openDiff = (hostId: string, path: string) => {
+  /**
+   * Diff 탭은 호스트당 하나.
+   * `path`를 주면 그 폴더의 저장소를 조사하고, 없으면 마지막에 보던 저장소를 그대로 보여 준다.
+   */
+  const openDiff = (hostId: string, path?: string) => {
     const id = `${hostId}:diff`;
-    const name = hosts.find((h) => h.id === hostId)?.name ?? "로컬";
-    const tab: Tab = { id, hostId, kind: "diff", title: `${name} · 변경사항`, path };
-    setTabs(tabs.some((t) => t.id === id) ? tabs.map((t) => (t.id === id ? tab : t)) : [...tabs, tab]);
+    const existing = tabs.find((t) => t.id === id);
+    if (!existing) {
+      setTabs([...tabs, { id, hostId, kind: "diff", title: `${hostName(hostId)} · 변경사항`, path }]);
+    } else if (path !== undefined && path !== existing.path) {
+      setTabs(tabs.map((t) => (t.id === id ? { ...t, path } : t)));
+    }
     setActiveTabId(id);
   };
 
-  /** 탭을 드래그해 다른 탭의 자리로 옮긴다. */
+  /** 탭을 드래그해 다른 탭의 자리로 옮긴다. (편집기 탭끼리, 터미널끼리) */
   const moveTab = (id: string, targetId: string) => {
     const from = tabs.findIndex((t) => t.id === id);
     const to = tabs.findIndex((t) => t.id === targetId);
@@ -148,44 +172,64 @@ export default function App() {
   };
 
   const closeTab = (id: string) => {
-    const index = tabs.findIndex((t) => t.id === id);
-    if (index < 0) return;
-    if (dirtyTabs.has(id) && !confirm(`'${tabs[index].title}'의 변경 내용을 저장하지 않고 닫을까요?`)) return;
-    const remaining = tabs.filter((t) => t.id !== id);
-    setTabs(remaining);
-    // 닫은 탭이 활성 탭이었다면 바로 옆 탭으로 옮긴다.
-    if (id === activeTabId) setActiveTabId((remaining[index] ?? remaining[index - 1])?.id ?? "");
+    const tab = tabs.find((t) => t.id === id);
+    if (!tab) return;
+    if (dirtyTabs.has(id) && !confirm(`'${tab.title}'의 변경 내용을 저장하지 않고 닫을까요?`)) return;
+    // 닫은 것이 보이던 탭이었다면 같은 영역(편집기 또는 터미널)의 바로 옆 탭으로 옮긴다.
+    const group = tabs.filter((t) => isTerminal(t) === isTerminal(tab));
+    const index = group.findIndex((t) => t.id === id);
+    const neighbor = (group[index + 1] ?? group[index - 1])?.id ?? "";
+    setTabs(tabs.filter((t) => t.id !== id));
+    if (isTerminal(tab)) {
+      if (id === activeTerminalId) setActiveTerminalId(neighbor);
+    } else if (id === activeTabId) {
+      setActiveTabId(neighbor);
+    }
   };
 
   return (
     <div className="app">
-      <HostBar
-        hosts={hosts}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        onAdd={() => setShowAdd(true)}
-      />
+      <HostBar hosts={hosts} selectedId={selectedId} onSelect={selectHost} onAdd={() => setShowAdd(true)} />
       <ChannelSidebar
         host={selectedHost}
-        terminals={tabs.filter((t) => t.hostId === selectedId && t.kind === "terminal")}
-        activeTabId={activeTabId}
-        onOpen={openTab}
+        hosts={hosts}
+        visited={visited}
+        terminals={terminalTabs.filter((t) => t.hostId === selectedId)}
+        activeTerminalId={activeTerminalId}
+        width={sidebarWidth}
+        onResize={setSidebarWidth}
+        onOpenFile={openFile}
+        onOpenDiff={openDiff}
         onNewTerminal={openTerminal}
-        onActivate={setActiveTabId}
+        onActivateTerminal={activateTerminal}
+        onCloseTerminal={closeTab}
         onRemove={handleRemove}
       />
       <MainPanel
-        tabs={tabs}
+        tabs={editorTabs}
         activeTabId={activeTabId}
         hosts={hosts}
         onActivate={setActiveTabId}
         onClose={closeTab}
         onMove={moveTab}
-        onOpenFile={openFile}
-        onOpenDiff={openDiff}
         dirtyTabs={dirtyTabs}
         onDirtyChange={handleDirtyChange}
-      />
+      >
+        <TerminalPanel
+          terminals={terminalTabs}
+          activeId={activeTerminalId}
+          hosts={hosts}
+          open={panelOpen}
+          height={panelHeight}
+          focusTick={terminalFocus}
+          onActivate={activateTerminal}
+          onClose={closeTab}
+          onMove={moveTab}
+          onNew={() => openTerminal(selectedId)}
+          onToggle={() => setPanelOpen(!panelOpen)}
+          onResize={setPanelHeight}
+        />
+      </MainPanel>
       {showAdd && <AddHostModal onSubmit={handleAdd} onCancel={() => setShowAdd(false)} />}
       {update && (
         <div className="update-banner" role="status">

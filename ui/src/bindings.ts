@@ -57,8 +57,6 @@ export const commands = {
 	fsRename: (hostId: string, path: string, newName: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("fs_rename", { hostId, path, newName }, options),
 	/**  파일이나 폴더(내용 포함)를 지운다. 되돌릴 수 없으므로 UI에서 먼저 확인받는다. */
 	fsRemove: (hostId: string, path: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("fs_remove", { hostId, path }, options),
-	/**  호스트의 SFTP 세션을 정리한다. 그 호스트의 파일·에디터·Diff 탭이 모두 닫혔을 때 호출한다. */
-	fsClose: (hostId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("fs_close", { hostId }, options),
 	/**
 	 *  `path`가 속한 저장소의 변경 파일 목록을 조사한다 (마지막 커밋 ↔ 작업 폴더).
 	 * 

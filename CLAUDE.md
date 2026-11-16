@@ -6,13 +6,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Anvil은 SSH 터미널 · SFTP 파일 탐색 · Git Diff · 코드 에디터를 하나로 묶은 **개인용 크로스플랫폼(Windows / macOS / Linux) 데스크톱 개발 도구**다. Rust + Tauri 2 백엔드, React 18 + TypeScript 프론트엔드(Vite).
 
-UI는 Discord식 3단 레이아웃이다. 협업/채팅 기능은 없고 **레이아웃만** 차용한다.
+UI는 Discord식 3단 레이아웃에 VS Code식 작업 화면을 얹은 형태다. 협업/채팅 기능은 없고 **레이아웃만** 차용한다.
+
+```
+┌──┬────────────┬──────────────────────────┐
+│💻│ EXPLORER   │ 편집기 탭 (에디터·Diff)  │
+│  │  파일 트리 ├──────────────────────────┤
+│PR│            │        편집기 영역       │
+│ +│ TERMINAL   ├──────────────────────────┤
+│  │ GIT        │ 터미널 패널 (접기 가능)  │
+└──┴────────────┴──────────────────────────┘
+ HostBar  ChannelSidebar      MainPanel
+```
 
 - 왼쪽 아이콘 바(`HostBar`): Discord "서버" 자리에 SSH 호스트. 💻는 로컬 머신(`LOCAL_ID = "local"`).
-- 채널 사이드바(`ChannelSidebar`): 선택한 호스트의 기능 채널(터미널 / 파일 / Git).
-- 메인 패널(`MainPanel`): 탭으로 터미널·에디터·Diff 전환. 탭 id는 `${hostId}:${kind}`이며 같은 id면 새로 열지 않고 포커스한다. 예외는 둘이다. 터미널은 한 호스트에 여러 개 열 수 있어 `${hostId}:terminal:${번호}`, 에디터는 파일마다 하나라 `${hostId}:editor:${경로}`를 쓴다.
-- 탭은 모두 마운트해 두고 `hidden`으로 숨기기만 한다(터미널 세션, 에디터의 수정 내용 유지). 탭을 닫으면 언마운트되면서 세션·에디터가 정리된다.
-- 로컬 머신(💻)과 원격 호스트는 터미널·파일·에디터·Diff 모두 같은 컴포넌트를 쓴다. 컴포넌트는 `host: Host | null`(null이면 로컬)을 받는다.
+- 사이드바(`ChannelSidebar`): 선택한 호스트의 **EXPLORER**(파일 트리, `Explorer.tsx`), **TERMINAL**(그 호스트에 열린 터미널 목록), **GIT**(변경사항 탭 열기). 너비는 경계를 끌어 조절한다.
+- 메인 패널(`MainPanel`): 위는 편집기 영역(탭 + 에디터·Diff), 아래는 터미널 패널(`TerminalPanel`). 탐색기에서 파일을 한 번 누르면 편집기 탭으로 열린다.
+- 탭은 모두 `App.tsx`의 `tabs` 배열 하나에 있고, `kind === "terminal"`이면 아래 패널에, 나머지는 편집기 영역에 표시된다. 활성 탭도 영역별로 따로 있다(`activeTabId`, `activeTerminalId`). 두 영역의 탭 줄은 같은 `TabBar` 컴포넌트다(드래그로 순서 변경).
+- 탭 id는 `${hostId}:${kind}`이며 같은 id면 새로 열지 않고 포커스한다. 예외는 둘이다. 터미널은 한 호스트에 여러 개 열 수 있어 `${hostId}:terminal:${번호}`, 에디터는 파일마다 하나라 `${hostId}:editor:${경로}`를 쓴다.
+- 탭·터미널은 모두 마운트해 두고 `hidden`으로 숨기기만 한다(터미널 세션, 에디터의 수정 내용 유지). 닫으면 언마운트되면서 세션·에디터가 정리된다. 터미널 패널을 접어도 셸은 계속 돈다.
+- 탐색기는 **한 번이라도 선택한 호스트**(`visited`)마다 하나씩 마운트해 두고 선택된 것만 보여 준다. 호스트를 오가도 펼친 폴더와 접속이 유지된다. 원격 호스트는 처음 선택하는 순간 탐색기가 홈 디렉터리를 읽으면서 접속이 시작된다.
+- 로컬 머신(💻)과 원격 호스트는 터미널·탐색기·에디터·Diff 모두 같은 컴포넌트를 쓴다. 컴포넌트는 `host: Host | null`(null이면 로컬)을 받는다.
+- 숨길 요소에 `display`를 지정한 클래스가 붙어 있어도 사라지도록 `styles.css`에 `[hidden] { display: none !important }`가 있다.
 
 ## 로드맵 (M1~M6 구현됨)
 
@@ -25,7 +40,7 @@ UI는 Discord식 3단 레이아웃이다. 협업/채팅 기능은 없고 **레�
 | M5   | Git Diff (로컬 + 원격)                               | `crates/core-git`(로컬 git2, 원격은 SSH로 `git` 실행), 뷰어는 Monaco Diff    |
 | M6   | 릴리스 워크플로(설치 파일), 코드 서명, 자동 업데이트 | `.github/workflows/release.yml`, `tauri-plugin-updater`                      |
 
-아직 없는 것: keyboard-interactive 인증(OTP 등), 터미널 출력 폭주 시 묶어 보내기, 파일 업로드/다운로드, 숨김 파일 토글, Windows 로컬 드라이브 목록, 에디터의 외부 변경 감지(저장 시 덮어씀), 창을 닫을 때 저장하지 않은 파일 경고.
+아직 없는 것: 호스트 연결 끊기(한 번 선택한 호스트의 연결은 앱 종료나 호스트 삭제 전까지 유지), keyboard-interactive 인증(OTP 등), 터미널 출력 폭주 시 묶어 보내기, 파일 업로드/다운로드, 숨김 파일 토글, Windows 로컬 드라이브 목록, 에디터의 외부 변경 감지(저장 시 덮어씀), 창을 닫을 때 저장하지 않은 파일 경고.
 
 확정된 설계 방향:
 
@@ -71,7 +86,7 @@ Tauri 크레이트를 컴파일하기 전에 `dist/`가 있어야 한다. 새로
 
 - `SshPool`이 호스트 id별로 연결 하나를 공유한다(약한 참조). 터미널·SFTP·Git이 같은 연결에 채널만 추가하므로 인증은 한 번이고, 쓰는 곳이 모두 사라지면 연결도 끊긴다.
 - 원격 접속이 필요한 커맨드는 모두 `secret` / `trusted_host_key`를 받고 `SshContext::connect`를 거친다. 필요한 입력이 없으면 `passwordRequired` / `passphraseRequired` / `hostKeyUnknown` 에러를 돌려주고, UI가 입력을 받아 같은 커맨드를 다시 호출한다.
-- UI 쪽 입력 창은 `ConnectPrompt.tsx`에 있다. 새 화면은 `useConnectRetry` 훅(`call(fn)` + `prompt`)을 쓰면 된다. 터미널과 파일 트리는 자체 상태 머신에서 `promptForError`를 직접 쓴다.
+- UI 쪽 입력 창은 `ConnectPrompt.tsx`에 있다. 어디서 띄우든 앱 전체를 덮는 창(`.overlay.modal`)으로 그려진다(사이드바·터미널 패널처럼 좁은 곳에서도 접속이 시작되므로). 새 화면은 `useConnectRetry` 훅(`call(fn)` + `prompt`)을 쓰면 된다. 터미널과 탐색기는 자체 상태 머신에서 `promptForError`를 직접 쓴다.
 - 호스트 키: 새로 신뢰한 키는 앱 설정 폴더의 `known_hosts`에만 기록하고 `~/.ssh/known_hosts`는 읽기만 한다. 처음 보는 키는 `hostKeyUnknown` 에러(`message` = 지문)로 돌려보내고, UI가 사용자 확인 후 같은 지문을 `trustedHostKey`로 넣어 다시 호출한다. 키 불일치(`hostKeyMismatch`)는 우회 수단을 두지 않는다.
 - 비밀번호·패스프레이즈: 사용자가 입력 창에서 "저장"을 고르면 접속 성공 후 `ssh_save_secret`으로 OS 보안 저장소에 넣는다(키: 호스트 id, 서비스: `dev.anvil.app`). `connect`는 비밀 값이 필요한데 없을 때만 저장소를 조회하고, 저장된 값이 틀리면 지운 뒤 사용자에게 다시 묻는다. 호스트를 삭제하면 저장된 값도 지운다.
 - `Connection::exec`은 명령을 서버의 셸로 실행한다. 경로 같은 인자는 반드시 `shell_quote`로 감싼다.
@@ -92,7 +107,7 @@ Tauri 크레이트를 컴파일하기 전에 `dist/`가 있어야 한다. 새로
 - 이름 변경은 대상이 이미 있으면 덮어쓰지 않고 `AlreadyExists`로 실패한다.
 - `fs_read`는 바이너리로 내려 주고 프론트(`api.readFile`)가 UTF-8로 해석한다. NUL이 있거나 UTF-8이 아니면 열지 않는다(잘못 해석한 채 저장하면 파일이 망가지므로). 에디터용 최대 크기는 10MB.
 - 저장(`write_file`)은 임시 파일 교체가 아니라 제자리 쓰기다. 권한·소유자·심볼릭 링크를 유지하기 위해서다.
-- SFTP 세션은 호스트당 하나를 `Files`에 캐시한다. 그 호스트의 파일·에디터·Diff 탭이 모두 닫히면 `App.tsx`가 `fs_close`를 호출해 정리한다.
+- SFTP 세션은 호스트당 하나를 `Files`에 캐시한다. 사이드바의 탐색기가 계속 쓰므로 앱이 떠 있는 동안 유지하고, 호스트를 삭제할 때(`remove_host`) 정리한다.
 - `u64` 필드는 specta가 BigInt로 내보내려다 실패하므로 `#[specta(type = specta_typescript::Number)]`를 붙인다.
 - `SftpFs`와 `RemoteGit`은 자동 테스트가 없다(SSH+SFTP 서버를 프로세스 안에 띄우는 하네스가 아직 없음). 바꿀 때는 실제 sshd로 확인한다.
 

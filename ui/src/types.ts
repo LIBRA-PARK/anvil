@@ -15,7 +15,11 @@ export type {
 /** 로컬 머신을 나타내는 가상 호스트 id */
 export const LOCAL_ID = "local";
 
-export type TabKind = "welcome" | "terminal" | "files" | "editor" | "diff";
+/**
+ * 탭의 종류. "terminal"은 아래 터미널 패널에, 나머지는 위 편집기 영역에 표시된다.
+ * (파일 목록은 탭이 아니라 사이드바의 EXPLORER에 있다)
+ */
+export type TabKind = "welcome" | "terminal" | "editor" | "diff";
 
 export interface Tab {
   /**

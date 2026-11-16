@@ -12,7 +12,7 @@ import {
 interface Props {
   /** null이면 로컬 머신 */
   host: Host | null;
-  /** 파일을 더블클릭했을 때 */
+  /** 파일을 눌렀을 때 (편집기로 연다) */
   onOpenFile: (entry: DirEntry) => void;
   /** 지금 보고 있는 폴더의 Git 변경사항 보기 */
   onOpenDiff: (path: string) => void;
@@ -59,8 +59,12 @@ function formatSize(bytes: number): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
-/** 파일 트리. 로컬 디스크와 SFTP 원격을 같은 화면으로 보여 준다. */
-export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
+/**
+ * 사이드바의 파일 트리. 로컬 디스크와 SFTP 원격을 같은 화면으로 보여 준다.
+ *
+ * 마운트되는 즉시 홈 디렉터리를 읽으므로, 원격 호스트라면 이때 접속이 시작된다.
+ */
+export function Explorer({ host, onOpenFile, onOpenDiff }: Props) {
   const hostId = host?.id ?? LOCAL_ID;
   const [root, setRoot] = useState<DirListing | null>(null);
   /** 루트를 읽지 못했을 때의 메시지 */
@@ -87,7 +91,10 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
         setLoadingRoot(true);
         setRootError(null);
       } else {
-        setChildren((prev) => ({ ...prev, [request.path]: { status: "loading" } }));
+        // 이미 내용이 보이는 폴더를 다시 읽을 때는 깜빡이지 않도록 기존 목록을 그대로 둔다.
+        setChildren((prev) =>
+          prev[request.path]?.status === "ready" ? prev : { ...prev, [request.path]: { status: "loading" } },
+        );
       }
 
       try {
@@ -130,7 +137,7 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
     [host, hostId],
   );
 
-  // 탭이 열리면 홈 디렉터리부터 읽는다. (원격 세션 정리는 App이 탭 목록을 보고 한다)
+  // 처음 나타날 때 홈 디렉터리부터 읽는다.
   useEffect(() => {
     run({ kind: "root" });
     return () => {
@@ -138,13 +145,17 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
     };
   }, [run]);
 
-  const toggle = (entry: DirEntry, dir: string) => {
+  /** 폴더는 펼치거나 접고, 파일은 편집기로 연다. */
+  const activate = (entry: DirEntry, dir: string) => {
     setSelected({ entry, dir });
-    if (entry.kind !== "dir") return;
-    if (entry.path in children) {
-      setChildren((prev) => without(prev, entry.path));
-    } else {
-      run({ kind: "expand", path: entry.path });
+    if (entry.kind === "file") {
+      onOpenFile(entry);
+    } else if (entry.kind === "dir") {
+      if (entry.path in children) {
+        setChildren((prev) => without(prev, entry.path));
+      } else {
+        run({ kind: "expand", path: entry.path });
+      }
     }
   };
 
@@ -152,6 +163,12 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
   const refreshDir = (dir: string) => {
     if (dir === root?.path) run({ kind: "root", path: dir, keep: true });
     else run({ kind: "expand", path: dir });
+  };
+
+  /** 지금 보이는 폴더(루트와 펼쳐 둔 하위 폴더)를 모두 다시 읽는다. */
+  const refreshAll = () => {
+    run({ kind: "root", path: root?.path, keep: true });
+    for (const path of Object.keys(children)) run({ kind: "expand", path });
   };
 
   const newFolder = () => {
@@ -209,16 +226,15 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
   const rows = (entries: DirEntry[], depth: number, dir: string): JSX.Element[] =>
     entries.flatMap((entry) => {
       const state = children[entry.path];
-      const indent = { paddingLeft: 8 + depth * 16 };
+      const indent = { paddingLeft: 6 + depth * 12 };
       const isDir = entry.kind === "dir";
       const row = (
         <button
           key={entry.path}
           className={`file-row ${entry.path === selected?.entry.path ? "selected" : ""} ${entry.name.startsWith(".") ? "dim" : ""}`}
           style={indent}
-          title={entry.path}
-          onClick={() => toggle(entry, dir)}
-          onDoubleClick={() => entry.kind === "file" && onOpenFile(entry)}
+          title={entry.kind === "file" ? `${entry.path} (${formatSize(entry.size)})` : entry.path}
+          onClick={() => activate(entry, dir)}
         >
           <span className="file-chevron">{isDir ? (state ? "▼" : "▶") : ""}</span>
           <span>{isDir ? "📁" : entry.kind === "file" ? "📄" : "❔"}</span>
@@ -226,12 +242,11 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
             {entry.name}
             {entry.isSymlink && " ↗"}
           </span>
-          {entry.kind === "file" && <span className="file-meta">{formatSize(entry.size)}</span>}
         </button>
       );
       if (!state) return [row];
 
-      const noteIndent = { paddingLeft: 8 + (depth + 1) * 16 + 20 };
+      const noteIndent = { paddingLeft: 6 + (depth + 1) * 12 + 20 };
       const note = (text: string, error = false) => (
         <div key={`${entry.path}\0note`} className={`file-note ${error ? "error" : ""}`} style={noteIndent}>
           {text}
@@ -260,18 +275,9 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
           className="icon-button"
           title="새로 고침"
           disabled={loadingRoot}
-          onClick={() => run({ kind: "root", path: root?.path })}
+          onClick={refreshAll}
         >
           ⟳
-        </button>
-        <button
-          type="button"
-          className="icon-button"
-          title="이 폴더의 Git 변경사항"
-          disabled={!root}
-          onClick={() => root && onOpenDiff(root.path)}
-        >
-          ±
         </button>
         <button type="button" className="icon-button" title="새 폴더" disabled={!root} onClick={newFolder}>
           ＋
@@ -294,6 +300,15 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
         >
           🗑
         </button>
+        <button
+          type="button"
+          className="icon-button"
+          title="이 폴더의 Git 변경사항"
+          disabled={!root}
+          onClick={() => root && onOpenDiff(root.path)}
+        >
+          ±
+        </button>
         <input
           value={pathInput}
           onChange={(e) => setPathInput(e.target.value)}
@@ -312,12 +327,14 @@ export function FilesView({ host, onOpenFile, onOpenDiff }: Props) {
       {rootError ? (
         <div className="files-status">
           <span className="form-error">{rootError}</span>
-          <button className="btn-primary" onClick={() => run({ kind: "root", path: root?.path })}>
+          <button className="btn-primary small" onClick={() => run({ kind: "root", path: root?.path })}>
             다시 시도
           </button>
         </div>
       ) : !root ? (
-        <div className="files-status">{loadingRoot ? "불러오는 중…" : ""}</div>
+        <div className="files-status">
+          {loadingRoot ? (host ? `${host.address}에 접속하는 중…` : "불러오는 중…") : ""}
+        </div>
       ) : (
         <div className="files-tree" role="tree">
           {root.entries.length === 0 ? (
@@ -370,7 +387,8 @@ function NameDialog({ request, onClose }: { request: NameRequest; onClose: () =>
   };
 
   return (
-    <div className="overlay">
+    // 사이드바는 좁으므로 앱 전체를 덮는 창으로 띄운다.
+    <div className="overlay modal">
       <form className="overlay-card" onSubmit={submit}>
         <label>
           {request.title}

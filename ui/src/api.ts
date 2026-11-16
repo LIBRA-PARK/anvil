@@ -1,14 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { commands } from "./bindings";
-import {
-  LOCAL_ID,
-  type AppError,
-  type DirListing,
-  type FileDiff,
-  type GitStatus,
-  type Host,
-  type NewHost,
-} from "./types";
+import type { AppError, DirListing, FileDiff, GitStatus, Host, NewHost } from "./types";
 
 // 브라우저(vite dev)에서 단독으로 UI를 볼 때는 Tauri가 없으므로 메모리 목업을 쓴다.
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -240,12 +232,6 @@ export async function renamePath(hostId: string, path: string, newName: string):
 export async function removePath(hostId: string, path: string): Promise<void> {
   if (!inTauri) return;
   await commands.fsRemove(hostId, path);
-}
-
-/** 호스트의 파일·에디터·Diff 탭이 모두 닫혔을 때 원격 SFTP 세션을 정리한다. */
-export async function closeFiles(hostId: string): Promise<void> {
-  if (!inTauri || hostId === LOCAL_ID) return;
-  await commands.fsClose(hostId);
 }
 
 // ── Git ──

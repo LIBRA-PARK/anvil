@@ -69,7 +69,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
             fs::fs_create_dir,
             fs::fs_rename,
             fs::fs_remove,
-            fs::fs_close,
             git::git_status,
             git::git_file_diff,
         ])

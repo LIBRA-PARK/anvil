@@ -44,6 +44,9 @@ impl Files {
     }
 
     /// 세션을 닫는다. 이 세션만 쓰던 연결이라면 연결도 함께 끊긴다.
+    ///
+    /// 호스트를 삭제할 때만 부른다. 그 밖에는 사이드바의 탐색기가 선택했던 호스트의
+    /// 세션을 계속 쓰므로, 앱이 떠 있는 동안 세션을 유지한다.
     pub async fn close(&self, host_id: &str) {
         self.sessions.lock().await.remove(host_id);
     }
@@ -198,12 +201,4 @@ pub async fn fs_remove(state: State<'_, AppState>, host_id: String, path: String
         async move { fs.remove(&path).await }
     })
     .await
-}
-
-/// 호스트의 SFTP 세션을 정리한다. 그 호스트의 파일·에디터·Diff 탭이 모두 닫혔을 때 호출한다.
-#[tauri::command]
-#[specta::specta]
-pub async fn fs_close(state: State<'_, AppState>, host_id: String) -> AppResult<()> {
-    state.files.close(&host_id).await;
-    Ok(())
 }

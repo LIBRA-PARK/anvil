@@ -59,7 +59,12 @@ interface Props {
   onCancel: () => void;
 }
 
-/** 비밀번호 입력 / 호스트 키 확인 창. 부모 영역을 덮는 오버레이로 그려진다. */
+/**
+ * 비밀번호 입력 / 호스트 키 확인 창.
+ *
+ * 어디서 띄우든 앱 전체를 덮는 창으로 그려진다. 사이드바나 아래 터미널 패널처럼
+ * 좁은 영역에서 접속이 시작돼도 내용이 잘리지 않게 하기 위해서다.
+ */
 export function ConnectPrompt({ host, prompt, onSubmit, onCancel }: Props) {
   if (prompt.kind === "secret") {
     return (
@@ -73,7 +78,7 @@ export function ConnectPrompt({ host, prompt, onSubmit, onCancel }: Props) {
     );
   }
   return (
-    <div className="overlay">
+    <div className="overlay modal">
       <div className="overlay-card">
         <h3>처음 접속하는 호스트입니다</h3>
         <p>
@@ -116,7 +121,7 @@ function SecretPrompt({ label, error, target, onSubmit, onCancel }: SecretPrompt
     if (value) onSubmit(value, remember);
   };
   return (
-    <div className="overlay">
+    <div className="overlay modal">
       <form className="overlay-card" onSubmit={submit}>
         <label>
           {target}의 {label}
