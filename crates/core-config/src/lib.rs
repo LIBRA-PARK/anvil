@@ -83,6 +83,11 @@ impl HostStore {
         if input.username.trim().is_empty() {
             return Err(ConfigError::Invalid("사용자 이름은 필수입니다".into()));
         }
+        if input.port == 0 {
+            return Err(ConfigError::Invalid(
+                "포트는 1~65535 사이여야 합니다".into(),
+            ));
+        }
         let host = Host {
             id: uuid::Uuid::new_v4().to_string(),
             name: input.name.trim().to_string(),
@@ -92,17 +97,31 @@ impl HostStore {
             auth: input.auth,
         };
         self.hosts.push(host.clone());
-        self.save()?;
+        // 저장에 실패하면 메모리 상태도 되돌려 파일과 어긋나지 않게 한다.
+        if let Err(e) = self.save() {
+            self.hosts.pop();
+            return Err(e);
+        }
         Ok(host)
     }
 
+    pub fn get(&self, id: &str) -> Result<&Host> {
+        self.hosts
+            .iter()
+            .find(|h| h.id == id)
+            .ok_or_else(|| ConfigError::NotFound(id.to_string()))
+    }
+
     pub fn remove(&mut self, id: &str) -> Result<()> {
-        let before = self.hosts.len();
-        self.hosts.retain(|h| h.id != id);
-        if self.hosts.len() == before {
+        let Some(index) = self.hosts.iter().position(|h| h.id == id) else {
             return Err(ConfigError::NotFound(id.to_string()));
+        };
+        let removed = self.hosts.remove(index);
+        if let Err(e) = self.save() {
+            self.hosts.insert(index, removed);
+            return Err(e);
         }
-        self.save()
+        Ok(())
     }
 
     /// 임시 파일에 쓴 뒤 교체하여 중간에 실패해도 기존 파일이 깨지지 않게 한다.
@@ -158,5 +177,29 @@ mod tests {
         let mut input = sample();
         input.name = "  ".into();
         assert!(matches!(store.add(input), Err(ConfigError::Invalid(_))));
+    }
+
+    #[test]
+    fn 포트_0은_거부() {
+        let path = std::env::temp_dir().join(format!("anvil-{}.json", uuid::Uuid::new_v4()));
+        let mut store = HostStore::load(path).unwrap();
+        let mut input = sample();
+        input.port = 0;
+        assert!(matches!(store.add(input), Err(ConfigError::Invalid(_))));
+    }
+
+    #[test]
+    fn 저장에_실패하면_메모리_상태를_되돌린다() {
+        let dir = std::env::temp_dir().join(format!("anvil-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        // 부모 경로 자리에 일반 파일을 두어 저장이 반드시 실패하게 만든다.
+        let blocker = dir.join("blocker");
+        fs::write(&blocker, "").unwrap();
+        let mut store = HostStore::load(blocker.join("hosts.json")).unwrap();
+
+        assert!(matches!(store.add(sample()), Err(ConfigError::Io(_))));
+        assert!(store.list().is_empty());
+
+        fs::remove_dir_all(dir).ok();
     }
 }
