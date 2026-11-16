@@ -39,6 +39,9 @@ button {
 .app {
   display: grid;
   grid-template-columns: 72px 240px 1fr;
+  /* 행 높이를 창 높이로 고정한다. 기본값(auto)이면 내용이 길 때 행이 창 밖으로 늘어나
+     안쪽 스크롤이 생기지 않고 아래가 잘린다. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -106,6 +109,7 @@ button {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 .sidebar-header {
   padding: 14px 16px;
@@ -172,9 +176,11 @@ button {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 .tab-bar {
   display: flex;
+  flex-shrink: 0;
   background: var(--bg-sidebar);
   overflow-x: auto;
   min-height: 38px;
@@ -188,6 +194,10 @@ button {
   cursor: pointer;
   border-right: 1px solid #1a1b1e;
   white-space: nowrap;
+}
+.tab.dragging {
+  opacity: 0.6;
+  cursor: grabbing;
 }
 .tab.active {
   background: var(--bg-main);
@@ -460,6 +470,7 @@ button {
 }
 .files-tree {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 4px 0;
 }
@@ -587,8 +598,10 @@ button {
   min-height: 0;
   display: grid;
   grid-template-columns: 280px 1fr;
+  grid-template-rows: minmax(0, 1fr);
 }
 .diff-list {
+  min-height: 0;
   overflow: auto;
   padding: 4px 0;
   border-right: 1px solid #1a1b1e;
