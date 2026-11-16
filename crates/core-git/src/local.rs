@@ -2,7 +2,7 @@
 
 use crate::{sort_changes, ChangeKind, GitChange, GitError, GitRepo, GitStatus, Result};
 use git2::{ErrorCode, Repository, Status, StatusOptions};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LocalGit;
@@ -91,9 +91,10 @@ fn status(dir: &str) -> Result<GitStatus> {
     }
     sort_changes(&mut changes);
 
-    // 끝의 구분자는 떼어 낸다. (libgit2는 항상 `/`를 붙여 돌려준다)
-    let root = root.to_string_lossy();
-    let root = root.trim_end_matches(['/', '\\']).to_string();
+    // libgit2는 Windows에서도 `/`로 구분하고 끝에 `/`를 붙여 돌려준다.
+    // 구성 요소로 풀었다 다시 모아 OS 형식(`C:\\Users\\...`)으로 맞추고 끝의 구분자를 없앤다.
+    let root: PathBuf = root.components().collect();
+    let root = root.to_string_lossy().into_owned();
     Ok(GitStatus {
         root,
         branch: current_branch(&repo),
@@ -250,7 +251,16 @@ mod tests {
         // 하위 폴더를 줘도 저장소 루트를 찾아야 한다.
         let sub = repo.dir.join("src");
         let status = LocalGit.status(sub.to_str().unwrap()).await.unwrap();
-        assert_eq!(status.root, repo.path());
+        // Windows에서는 canonicalize가 `\\\\?\\` 접두사를 붙이므로 양쪽을 같은 방식으로 정규화해 비교한다.
+        assert_eq!(fs::canonicalize(&status.root).unwrap(), repo.dir);
+        assert!(!status.root.ends_with(['/', '\\']));
+        if cfg!(windows) {
+            assert!(
+                !status.root.contains('/'),
+                "OS 형식의 경로여야 한다: {}",
+                status.root
+            );
+        }
         assert!(status.branch.is_some());
 
         use ChangeKind::*;
