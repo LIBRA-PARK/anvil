@@ -1,0 +1,20 @@
+[package]
+name = "anvil"
+description = "SSH · SFTP · Git · 에디터를 하나로 묶은 크로스플랫폼 개발 도구"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# 모바일 빌드 호환을 위해 Tauri 권장 구성 사용
+name = "anvil_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+core-config = { path = "../crates/core-config" }
