@@ -42,8 +42,10 @@ fn specta_builder() -> Builder<tauri::Wry> {
         .typ::<AppError>()
 }
 
-fn export_bindings(builder: &Builder<tauri::Wry>) {
-    builder
+/// `ui/src/bindings.ts`를 생성한다. (`tests/bindings.rs`와 개발 실행 시 호출)
+#[doc(hidden)]
+pub fn export_bindings() {
+    specta_builder()
         .export(
             specta_typescript::Typescript::default()
                 .header("// 자동 생성 파일입니다. 직접 수정하지 마세요.\n"),
@@ -54,11 +56,11 @@ fn export_bindings(builder: &Builder<tauri::Wry>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = specta_builder();
-
     // 개발 실행 시마다 바인딩을 최신으로 갱신
     #[cfg(debug_assertions)]
-    export_bindings(&builder);
+    export_bindings();
+
+    let builder = specta_builder();
 
     tauri::Builder::default()
         .invoke_handler(builder.invoke_handler())
@@ -75,14 +77,4 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("Anvil 실행 중 오류 발생");
-}
-
-#[cfg(test)]
-mod tests {
-    /// `cargo test`로 바인딩을 생성한다.
-    /// CI는 이후 `git diff`로 커밋된 bindings.ts가 최신인지 검사한다.
-    #[test]
-    fn export_bindings() {
-        super::export_bindings(&super::specta_builder());
-    }
 }

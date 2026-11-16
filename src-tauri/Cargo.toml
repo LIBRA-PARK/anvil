@@ -10,6 +10,15 @@ repository.workspace = true
 # 모바일 빌드 호환을 위해 Tauri 권장 구성 사용
 name = "anvil_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+# Tauri를 링크하는 테스트는 tests/ 통합 테스트로만 작성한다.
+# (Windows에서 lib 단위 테스트 바이너리에는 매니페스트를 넣을 수 없음, build.rs 참고)
+test = false
+doctest = false
+
+[[bin]]
+name = "anvil"
+path = "src/main.rs"
+test = false
 
 [lints]
 workspace = true
